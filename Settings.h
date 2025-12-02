@@ -18,10 +18,10 @@ struct SettingsAP{
   bool requirePass;
 };
 
-struct Last { 
-  int lastEffect;
-  char lastIp[15];
-};
+// struct Last { 
+//   int lastEffect;
+//   char lastIp[15];
+// };
 
 void saveSTASettings(const SettingsSTA &settings);
 SettingsSTA loadSTASettings();
@@ -29,7 +29,7 @@ SettingsSTA loadSTASettings();
 void saveAPSettings(const SettingsAP &settings);
 SettingsAP loadAPSettings();
 
-void saveLast(const Last &last);
-Last loadLast();
+// void saveLast(const Last &last);
+// Last loadLast();
 
 #endif

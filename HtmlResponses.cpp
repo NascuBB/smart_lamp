@@ -673,6 +673,7 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
     <h3 class="secondary-title">Дополнительно</h3>
     <button class="btn btn-primary" onclick="connectToWifi()">Подключиться к сети</button>
     <button class="btn btn-primary" onclick="reboot()">Перезапустить</button>
+    <button class="btn btn-primary" onclick="update()">Обновить прошивку</button>
   </div>
 </div>
 
@@ -713,6 +714,18 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     })
     .catch(err => {
       alert("Ошибка перезапуска");
+    });
+  }
+
+  function update() {
+    fetch("/api/update", {
+      method: "POST"
+    })
+    .then(response => {
+      alert("Контроллер начал процесс обновления пожалуйста не выключайте светильник")
+    })
+    .catch(err => {
+      alert("Ошибка обновления");
     });
   }
 

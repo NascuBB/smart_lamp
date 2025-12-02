@@ -6,16 +6,18 @@
 
 #include "Settings.h"
 #include "HtmlResponses.h"
+#include "SimpleOTA.h"
 
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
+
+#define FW_VERSION "0.1.1"
+
 //======================================LED======================================
 //-------------------GLOBAL-------------------
 #define LED_PIN     2
 #define NUM_LEDS    30
 #define INTERVAL    20
-
-#define FW_VERSION "0.1"
 
 unsigned long lastUpdate = 0; // Время последнего обновления
 uint8_t brightness = 100;
@@ -56,6 +58,8 @@ IPAddress apIP(192, 168, 0, 1);
 unsigned long connectionStartTime = 0;
 bool isConnecting = false;
 bool isConnected = false;
+
+bool isUpdateRequested = false;
 //======================================Server======================================
 
 //======================================Server Init======================================
@@ -203,14 +207,12 @@ void beginServer(){
       return;
     }
 
-    // Получаем яркость
     if (!doc.containsKey("brightness")) {
       request->send(400, F("application/json"), F("{\"error\":\"Missing brightness\"}"));
       return;
     }
 
     brightness = doc["brightness"];
-    //Serial.printf("Яркость установлена: %d\n", brightness);
     switch(mode){
       case 3: // статик
         RgbColor col = FromHex(colorHex).Dim(brightness);
@@ -220,12 +222,6 @@ void beginServer(){
         strip.Show();
       break;
     }
-
-    // StaticJsonDocument<100> response;
-    // response["success"] = true;
-
-    // String responseString;
-    // serializeJson(response, responseString);
     request->send(200, F("application/json"), F("{\"success\":true}"));
   });
 
@@ -239,7 +235,6 @@ void beginServer(){
       return;
     }
 
-    // Получаем яркость
     if (!doc.containsKey("color")) {
       request->send(400, F("application/json"), F("{\"error\":\"Missing color\"}"));
       return;
@@ -252,11 +247,6 @@ void beginServer(){
     }
     strip.Show();
 
-    // StaticJsonDocument<100> response;
-    // response["success"] = true;
-
-    // String responseString;
-    // serializeJson(response, responseString);
     request->send(200, F("application/json"), F("{\"success\":true}"));
   });
 
@@ -270,7 +260,6 @@ void beginServer(){
       return;
     }
 
-    // Получаем яркость
     if (!doc.containsKey("mode")) {
       request->send(400, F("application/json"), F("{\"error\":\"Missing mode\"}"));
       return;
@@ -329,65 +318,13 @@ void beginServer(){
 
   server.on("/api/setPower", HTTP_POST, [](AsyncWebServerRequest *request){
     powerStateChanged = true;
-    //Serial.println("power changed");
     request->send(200, F("application/json"), F("{\"success\": true}"));
   });
 
-  server.on("/api/doUpdate", HTTP_POST, [](AsyncWebServerRequest *request){
+  server.on("/api/update", HTTP_POST, [](AsyncWebServerRequest *request){
       request->send(200, F("text/plain"), F("Checking for updates..."));
-      
-      const char* ver_url = "https://raw.githubusercontent.com/NascuBB/smart_lamp/main/version.txt";
-      const char* bin_url = "https://github.com/NascuBB/smart_lamp/releases/latest/download/firmware.bin";
-      
-      for(int i = 0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(100, 100, 0));
-      strip.Show();
 
-      bool needUpdate = isUpdateAvailable(ver_url, FW_VERSION);
-      
-      if (!needUpdate) {
-          Serial.println(F("No updates found."));
-        
-          for(int k=0; k<2; k++) {
-              turnOff(); delay(200);
-              for(int i = 0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(0, 50, 0));
-              strip.Show(); delay(200);
-          }
-          turnOff();
-          return;
-      }
-
-
-      //Serial.println(F("New version found! Starting OTA..."));
-
-
-      if(mode == 4) animations.StopAll(); 
-      
-      bool success = performOTA(bin_url, [](int percent) {
-
-        int ledsToLight = map(percent, 0, 100, 0, NUM_LEDS);
-        for(int i = 0; i < NUM_LEDS; i++) {
-          if (i < ledsToLight) strip.SetPixelColor(i, RgbColor(0, 255, 255));
-          else strip.SetPixelColor(i, RgbColor(0, 0, 0));
-        }
-        strip.Show();
-      });
-      
-      if (success) {
-        for(int i = 0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(0, 255, 0));
-        strip.Show();
-        delay(500);
-        turnOff();
-        delay(100);
-        ESP.restart();
-      } else {
-        for(int k=0; k<3; k++) {
-          for(int i=0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(255, 0, 0));
-          strip.Show();
-          delay(300);
-          turnOff();
-          delay(300);
-        }
-      }
+      isUpdateRequested = true;
   });
 
   server.begin();
@@ -433,7 +370,6 @@ void setup() {
 
   if (s.useStaMode) {
     if (!connectToWiFi(s)) {
-      //Serial.println("Не удалось подключиться. Запуск AP.");
       startAP();
       for(uint8_t i = 0; i < 2; i++){
         for (int j = 0; j < NUM_LEDS; j++) {
@@ -452,8 +388,6 @@ void setup() {
         //Serial.println("mDNS responder started");
       }
       isConnected = true;
-      //Serial.println("Подключено к Wi-Fi.");
-      //Serial.println(WiFi.localIP());
       server.begin();
     } 
   } else {
@@ -472,6 +406,59 @@ void loop() {
   }
   else{
     MDNS.update();
+  }
+
+  if(isUpdateRequested){
+    isUpdateRequested = false;
+    const char* ver_url = "https://raw.githubusercontent.com/NascuBB/smart_lamp/main/version.txt";
+    const char* bin_url = "https://github.com/NascuBB/smart_lamp/releases/latest/download/firmware.bin";
+
+    bool needUpdate = isUpdateAvailable(ver_url, FW_VERSION);
+    
+    if (!needUpdate) {
+        for(int k=0; k<3; k++) {
+          for(int i = 0; i < NUM_LEDS; i++){
+            strip.SetPixelColor(i, RgbColor(0, 0, 0));
+          }
+          strip.Show();
+          delay(200);
+          for(int i = 0; i < NUM_LEDS; i++){
+            strip.SetPixelColor(i, RgbColor(0, 255, 0));
+          }
+          strip.Show();
+          delay(200);
+        }
+        return;
+    }
+
+    if(mode == 4) animations.StopAll(); 
+    
+    bool success = performOTA(bin_url, [](int percent) {
+
+      int ledsToLight = map(percent, 0, 100, 0, NUM_LEDS);
+      for(int i = 0; i < NUM_LEDS; i++) {
+        if (i < ledsToLight) strip.SetPixelColor(i, RgbColor(0, 255, 255));
+        else strip.SetPixelColor(i, RgbColor(0, 0, 0));
+      }
+      strip.Show();
+    });
+    
+    if (success) {
+      for(int i = 0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(0, 255, 0));
+      strip.Show();
+      delay(500);
+      turnOff();
+      delay(100);
+      ESP.restart();
+    } else {
+      for(int k=0; k<3; k++) {
+        for(int i=0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(255, 0, 0));
+        strip.Show();
+        delay(300);
+        turnOff();
+        delay(300);
+      }
+    }
   }
 
   if(powerStateChanged){

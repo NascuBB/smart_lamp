@@ -4,10 +4,10 @@
 #include <Arduino.h>
 #include <functional>
 
-// callback funkrion on percentage
+// callback function on percentage
 typedef std::function<void(int)> ProgressCallback;
 
-bool performOTA(const char* firmwareURL, ProgressCallback onProgress = nullptr);
+bool performOTA(const char* firmwareURL, const ProgressCallback& onProgress = nullptr);
 
 bool isUpdateAvailable(const char* versionURL, const char* currentVersion);
 

@@ -11,7 +11,7 @@
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
 
-#define FW_VERSION "0.1.1"
+#define FW_VERSION "0.1.2"
 
 //======================================LED======================================
 //-------------------GLOBAL-------------------
@@ -178,7 +178,7 @@ void beginServer(){
     connectionStartTime = millis();
     isConnecting = true;
 
-    request->send(200); // Запущено подключение
+    request->send(200);
   });
 
   server.on("/api/connection_status", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -433,7 +433,7 @@ void loop() {
 
     if(mode == 4) animations.StopAll(); 
     
-    bool success = performOTA(bin_url, [](int percent) {
+    bool success = performOTA(bin_url, [=](int percent) {
 
       int ledsToLight = map(percent, 0, 100, 0, NUM_LEDS);
       for(int i = 0; i < NUM_LEDS; i++) {
@@ -447,7 +447,10 @@ void loop() {
       for(int i = 0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(0, 255, 0));
       strip.Show();
       delay(500);
-      turnOff();
+      for(int i = 0; i < NUM_LEDS; i++){
+        strip.SetPixelColor(i, RgbColor(0, 0, 0));
+      }
+      strip.Show();
       delay(100);
       ESP.restart();
     } else {
@@ -455,7 +458,10 @@ void loop() {
         for(int i=0; i < NUM_LEDS; i++) strip.SetPixelColor(i, RgbColor(255, 0, 0));
         strip.Show();
         delay(300);
-        turnOff();
+        for(int i = 0; i < NUM_LEDS; i++){
+          strip.SetPixelColor(i, RgbColor(0, 0, 0));
+        }
+        strip.Show();
         delay(300);
       }
     }
@@ -542,7 +548,7 @@ void FireUpdate(const AnimationParam& param, FirePixelState* state, RgbColor sta
   strip.SetPixelColor(index, updated.Dim(brightness));
   
   if (param.state == AnimationState_Completed) {
-    StartFirePixel(index);  // перезапускаем анимацию
+    StartFirePixel(index);
   }
 }
 

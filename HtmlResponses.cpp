@@ -804,7 +804,7 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
       {
         switch((*currentPart)){
           case 0:
-            totalLen = strlen_P(html_template_p1);  // Общая длина шаблона
+            totalLen = strlen_P(html_template_p1);
 
             if (*sentBytes >= totalLen) {
               //Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
@@ -820,7 +820,7 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
               break;
             }
           case 1:
-            totalLen = strlen_P(html_index_p1);  // Общая длина шаблона
+            totalLen = strlen_P(html_index_p1);
 
             if (*sentBytes >= totalLen) {
               //Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
@@ -842,10 +842,10 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
             (*currentPart)++;
           break;
           case 3:
-            totalLen = strlen_P(html_index_p2);  // Общая длина шаблона
+            totalLen = strlen_P(html_index_p2);
 
             if (*sentBytes >= totalLen) {
-              Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
+              //Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
               (*currentPart) = 4;
               *sentBytes = 0;
               continue;

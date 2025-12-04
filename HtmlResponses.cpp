@@ -399,7 +399,7 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
     <span>Уровень яркости:</span>
     <span id="brightness-slider-value">50%</span>
   </div>
-    <input type="range" min="0" max="100" value="50" class="slider" id="brightness-slider">
+    <input type="range" min="0" max="255" value="50" class="slider" id="brightness-slider">
     <span id="brightness-warn-span" style="color: var(--warning); transition: 0.5s; opacity: 0;">При понижении яркости в Статичном режиме меняеться цветопередача</span>
   </div>
 </div>
@@ -410,8 +410,9 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
 
 const char html_index_p2[] PROGMEM = R"rawliteral(
 function init() {
-    brightnessValue.textContent = `${state.brightness}%`;
-    brightnessSliderValue.textContent = `${state.brightness}%`;
+    bprecent = Math.round((state.brightness * 100) / 255);
+    brightnessValue.textContent = `${bprecent}%`;
+    brightnessSliderValue.textContent = `${bprecent}%`;
     brightnessSlider.value = state.brightness;
     colorPicker.value = state.color;
     colorPicker.style.backgroundColor = state.color;
@@ -594,9 +595,10 @@ function init() {
     if (!state.power) return;
 
     state.brightness = e.target.value;
+    brightnessPercent = Math.round((state.brightness * 100) / 255);
 
-    brightnessSliderValue.textContent = `${state.brightness}%`;
-    if(e.target.value < 90){
+    brightnessSliderValue.textContent = `${brightnessPercent}%`;
+    if(e.target.value < 128){
       brightnessWarnSpan.style.opacity = 1;
     } else {
       brightnessWarnSpan.style.opacity = 0;
@@ -615,7 +617,7 @@ function init() {
         return response.json();
       })
       .then(data => {
-        brightnessValue.textContent = `${state.brightness}%`;
+        brightnessValue.textContent = `${brightnessPercent}%`;
       })
       .catch(err => {
         console.error('Ошибка:', err);

@@ -11,7 +11,7 @@
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
 
-#define FW_VERSION "0.1.2"
+#define FW_VERSION "0.1.3"
 
 //======================================LED======================================
 //-------------------GLOBAL-------------------
@@ -20,7 +20,7 @@
 #define INTERVAL    20
 
 unsigned long lastUpdate = 0; // Время последнего обновления
-uint8_t brightness = 100;
+uint8_t brightness = 255;
 uint8_t mode = 1;
 uint8_t speed = 3;
 bool power = true;

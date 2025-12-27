@@ -76,13 +76,11 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
     }
 
     .page {
-      display: none;
       animation: fadeIn 0.3s ease;
+      transition: 0.2s;
+      display: grid;
     }
 
-    .page.active {
-      display: block;
-    }
 
     @keyframes fadeIn {
       from { opacity: 0; }
@@ -299,6 +297,33 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
       margin-bottom: 0.5rem;
       color: var(--primary);
     }
+
+    .d {
+      display: grid;
+      grid-template-rows: 1fr; 
+      opacity: 1;
+      transition: grid-template-rows 0.15s ease-out, opacity 0.15s ease-out;
+    }
+
+    .d.hidden {
+      grid-template-rows: 0fr;
+      opacity: 0;           
+    }
+
+    .di {
+      overflow: hidden;
+    }
+
+    .gradient-preview {
+      width: 100%;
+      height: 50px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border: 2px solid var(--bg-light);
+      background: linear-gradient(90deg, #0000ff, #00ffff);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      transition: all 0.3s ease;
+    }
   </style>
 </head>
 <body>
@@ -308,7 +333,6 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
       <a class="nav-btn" data-page="settings" href="/settings">Настройки</a>
     </nav>
   </header>
-
   <main>
 )rawliteral";
 
@@ -349,49 +373,66 @@ const char html_connecting[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 const char html_index_p1[] PROGMEM = R"rawliteral(
-<div class="page active" id="home">
+<div class="page" id="home">
   <h1>Управление светильником</h1>
   
   <div class="card">
-  <div class="status-row">
-    <span class="status-label">Состояние:</span>
-    <span class="status-value" id="status-value">Выключен</span>
-  </div>
-  <div class="status-row">
-    <span class="status-label">Последний режим:</span>
-    <span class="status-value" id="mode-value">Выключен</span>
-  </div>
     <div class="status-row">
-    <span class="status-label">Скорость:</span>
-    <span class="status-value" id="speed-value">3</span>
-  </div>
-  <div class="status-row">
-    <span class="status-label">Яркость:</span>
-    <span class="status-value" id="brightness-value">0%</span>
-  </div>
+      <span class="status-label">Состояние:</span>
+      <span class="status-value" id="status-value">Выключен</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Последний режим:</span>
+      <span class="status-value" id="mode-value">Выключен</span>
+    </div>
+      <div class="status-row">
+      <span class="status-label">Скорость:</span>
+      <span class="status-value" id="speed-value">3</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Яркость:</span>
+      <span class="status-value" id="brightness-value">0%</span>
+    </div>
   </div>
 
   <button class="power-btn btn off" id="power-btn">Включить</button>
 
   <h2>Режимы</h2>
   <div class="mode-selector">
-  <div class="btn mode-btn" data-mode="3">Статичный</div>
-  <div class="btn mode-btn" data-mode="2">Сплошной</div>
-  <div class="btn mode-btn" data-mode="1">Радуга</div>
-  <div class="btn mode-btn" data-mode="4">Огонь</div>
+    <div class="btn mode-btn" data-mode="3">Статичный</div>
+    <div class="btn mode-btn" data-mode="2">Сплошной</div>
+    <div class="btn mode-btn" data-mode="1">Радуга</div>
+    <div class="btn mode-btn" data-mode="4">Огонь</div>
+    <div class="btn mode-btn" data-mode="5">Градиент</div>
   </div>
 
   <h2>Скорость</h2>
   <div class="speed-selector">
-  <div class="btn speed-btn" data-speed="1">1</div>
-  <div class="btn speed-btn" data-speed="2">2</div>
-  <div class="btn speed-btn" data-speed="3">3</div>
-  <div class="btn speed-btn" data-speed="4">4</div>
-  <div class="btn speed-btn" data-speed="5">5</div>
+    <div class="btn speed-btn" data-speed="1">1</div>
+    <div class="btn speed-btn" data-speed="2">2</div>
+    <div class="btn speed-btn" data-speed="3">3</div>
+    <div class="btn speed-btn" data-speed="4">4</div>
+    <div class="btn speed-btn" data-speed="5">5</div>
   </div>
 
-  <h2>Цвет</h2>
-  <input type="color" class="color-picker" id="color-picker" value="#6c5ce7">
+  <div id="col-div" class="d">
+    <div class="di">
+      <h2>Цвет</h2>
+      <input type="color" class="color-picker" id="color-picker" value="#6c5ce7">
+    </div>
+  </div>
+
+  <div id="grad-div" class="d">
+    <div class="di">
+      <h2>Градиент</h2>
+      <div style="display: flex; gap: 10px; justify-content: space-between;">
+        <input class="color-picker" type="color" id="grad1" style="flex: 1;">
+        <input class="color-picker" type="color" id="grad2" style="flex: 1;">
+      </div>
+      <div id="gradient-preview" class="gradient-preview"></div>
+    </div>
+  </div>
+
 
   <h2>Яркость</h2>
   <div class="slider-container">
@@ -410,6 +451,7 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
 
 const char html_index_p2[] PROGMEM = R"rawliteral(
 function init() {
+    changeCards();
     bprecent = Math.round((state.brightness * 100) / 255);
     brightnessValue.textContent = `${bprecent}%`;
     brightnessSliderValue.textContent = `${bprecent}%`;
@@ -418,7 +460,14 @@ function init() {
     colorPicker.style.backgroundColor = state.color;
     modeValue.textContent = getModeName(state.mode);
     speedValue.textContent = state.speed;
+    colorGrad1Picker.value = state.grad1;
+    colorGrad1Picker.style.backgroundColor = state.grad1;
+    colorGrad2Picker.value = state.grad2;
+    colorGrad2Picker.style.backgroundColor = state.grad2;
+    updateGradientVisual();
     updatePowerState();
+    colorGrad1Picker.addEventListener('input', handleGradientChange);
+    colorGrad2Picker.addEventListener('input', handleGradientChange);
   }
   const powerBtn = document.getElementById('power-btn');
   const statusValue = document.getElementById('status-value');
@@ -431,6 +480,11 @@ function init() {
   const brightnessSlider = document.getElementById('brightness-slider');
   const brightnessSliderValue = document.getElementById('brightness-slider-value');
   const brightnessWarnSpan = document.getElementById('brightness-warn-span');
+  const colorGrad1Picker = document.getElementById('grad1');
+  const colorGrad2Picker = document.getElementById('grad2');
+  const gradientPreview = document.getElementById('gradient-preview');
+  const gradDiv = document.getElementById('grad-div');
+  const colDiv = document.getElementById('col-div'); 
   powerBtn.addEventListener('click', () => {
     state.power = !state.power;
     fetch('/api/setPower', {
@@ -450,6 +504,16 @@ function init() {
         state.power = !state.power;
       });
   });
+
+  function updateGradientVisual() {
+    const c1 = colorGrad1Picker.value;
+    const c2 = colorGrad2Picker.value;
+
+    gradientPreview.style.background = `linear-gradient(90deg, ${c1}, ${c2})`;
+    
+    state.grad1 = c1;
+    state.grad2 = c2;
+  }
 
   function updatePowerState() {
     if (state.power) {
@@ -491,7 +555,6 @@ function init() {
   modeBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       if (!state.power) return;
-
       modeBtns.forEach(b => b.classList.remove('active'));
       
       fetch('/api/setMode', {
@@ -503,7 +566,8 @@ function init() {
         return response.json();
       })
       .then(data => {
-        state.mode = btn.dataset.mode;
+        state.mode = +btn.dataset.mode;
+        changeCards();
         modeValue.textContent = getModeName(state.mode);
         btn.classList.add('active');
       })
@@ -552,14 +616,63 @@ function init() {
     });
   });
 
+  function changeCards(){
+    switch(state.mode){
+      case 5:
+          colDiv.classList.add('hidden');
+          gradDiv.classList.remove('hidden');
+        break;
+      case 3:
+          gradDiv.classList.add('hidden');
+          colDiv.classList.remove('hidden');
+        break;
+      default:
+          colDiv.classList.add('hidden');
+          gradDiv.classList.add('hidden');
+    }
+  }
+
   function getModeName(mode) {
     const modes = {
       1 : 'Радуга',
       2 : 'Сплошной (RGB)',
       3 : 'Статичный',
-      4 : 'Огонь'
+      4 : 'Огонь',
+      5 : 'Градиент'
     };
     return modes[mode] || mode;
+  }
+
+  let gradientDebounceTimer = null;
+
+  function handleGradientChange() {
+    if (!state.power) return;
+    if (state.mode != 5) return;
+
+    updateGradientVisual();
+
+    clearTimeout(gradientDebounceTimer);
+
+    gradientDebounceTimer = setTimeout(() => {
+      
+      fetch('/api/setGradient', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          c1: state.grad1, 
+          c2: state.grad2 
+        })
+      })
+      .then(response => {
+        if (!response.ok) throw new Error('Error setting gradient');
+        else{
+          colorGrad2Picker.style.backgroundColor = state.grad2;
+          colorGrad1Picker.style.backgroundColor = state.grad1;
+        }
+      })
+      .catch(err => console.error(err));
+      
+    }, 300); 
   }
 
   let colorDebounceTimer = null;
@@ -791,7 +904,7 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 </script>
 )rawliteral";
 
-void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const bool power) {
+void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const char* colorGrad1Hex, const char* colorGrad2Hex, const bool power) {
   //Serial.printf("Free heap before sendIndex: %d\n", ESP.getFreeHeap());
   auto currentPart = std::make_shared<uint8_t>(0);
   auto sentBytes = std::make_shared<size_t>(0);
@@ -839,8 +952,8 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
             }
           case 2:
             len = snprintf((char*)buffer, maxLen,
-            "brightness: %d, mode: %d, speed: %d, power: %s, color: '%s'};\n",
-            brightness, mode, speed, power ? "true" : "false", colorHex);
+            "brightness: %d, mode: %d, speed: %d, power: %s, color: '%s', grad1: '%s', grad2: '%s'};\n",
+            brightness, mode, speed, power ? "true" : "false", colorHex, colorGrad1Hex, colorGrad2Hex);
             (*currentPart)++;
           break;
           case 3:

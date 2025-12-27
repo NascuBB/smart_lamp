@@ -6,7 +6,7 @@
 #include "Settings.h"
 
 void sendWrap(AsyncWebServerRequest *request, const char* progmem_content);
-void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const bool power);
+void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const char* colorGrad1Hex, const char* colorGrad2Hex, const bool power);
 //String index_P(const uint8_t brightness, const uint8_t mode, const bool power, const char* color);
 // String wrap_P(const char* progmem_content, const Settings& settings, const Last& last, int brightness);
 

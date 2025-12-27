@@ -26,6 +26,9 @@ uint8_t speed = 3;
 bool power = true;
 bool powerStateChanged = false;
 char colorHex[8] = "#00ff00";
+char colorGrad1Hex[8] = "#0000ff";
+char colorGrad2Hex[8] = "#00ffff";
+
 NeoPixelBus<NeoGrbFeature, NeoEsp8266Dma800KbpsMethod> strip(NUM_LEDS); //port 3 rx
 //NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod> strip(NUM_LEDS, LED_PIN);
 //-------------------GLOBAL-------------------
@@ -76,7 +79,7 @@ void startAP() {
   }
   dnsServer.start(DNS_PORT, "*", apIP);  // Перехватываем все домены
   server.onNotFound([](AsyncWebServerRequest *request){
-    sendIndex(request, brightness, mode, speed, colorHex, power);
+    sendIndex(request, brightness, mode, speed, colorHex, colorGrad1Hex, colorGrad2Hex, power);
   });
 
   //Serial.println("AP MODE запущен");
@@ -84,7 +87,7 @@ void startAP() {
 
 void beginServer(){
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    sendIndex(request, brightness, mode, speed, colorHex, power);
+    sendIndex(request, brightness, mode, speed, colorHex, colorGrad1Hex, colorGrad2Hex, power);
   });
 
   server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -197,6 +200,30 @@ void beginServer(){
     }
   });
 
+  server.on("/api/setGradient", HTTP_POST, [](AsyncWebServerRequest *request){},
+    NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, data);
+
+    if (error) {
+      request->send(400, F("application/json"), F("{\"error\":\"Invalid JSON\"}"));
+      return;
+    }
+
+    if (!doc.containsKey("c1") && !doc.containsKey("c2") ) {
+      request->send(400, F("application/json"), F("{\"error\":\"Missing colors\"}"));
+      return;
+    }
+
+    strcpy(colorGrad1Hex, doc["c1"]);
+    strcpy(colorGrad2Hex, doc["c2"]);
+
+    drawGradient(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex));
+    
+    request->send(200, F("application/json"), F("{\"success\":true}"));
+  });
+
   server.on("/api/setBrightness", HTTP_POST, [](AsyncWebServerRequest *request){},
     NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       
@@ -214,13 +241,18 @@ void beginServer(){
 
     brightness = doc["brightness"];
     switch(mode){
-      case 3: // статик
+      case 3: // static
+      {
         RgbColor col = FromHex(colorHex).Dim(brightness);
         for (int i = 0; i < NUM_LEDS; i++) {
           strip.SetPixelColor(i, col);
         }
         strip.Show();
-      break;
+        break;
+      }
+      case 5: // gradient
+        drawGradient(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex));
+        break;
     }
     request->send(200, F("application/json"), F("{\"success\":true}"));
   });
@@ -239,7 +271,6 @@ void beginServer(){
       request->send(400, F("application/json"), F("{\"error\":\"Missing color\"}"));
       return;
     }
-
     strcpy(colorHex, doc["color"]);
     RgbColor col = FromHex(colorHex).Dim(brightness);
     for (int i = 0; i < NUM_LEDS; i++) {
@@ -277,6 +308,8 @@ void beginServer(){
       for (uint16_t i = 0; i < NUM_LEDS; i++) {
         StartFirePixel(i);
       }
+    } else if (mode == 5) {
+      drawGradient(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex));
     } else {
       animations.StopAll();
     }
@@ -504,6 +537,15 @@ void loop() {
             StartFirePixel(i);
           }
         break;
+        case 5:
+          for (uint16_t i = 0; i < NUM_LEDS; i++) {
+            float progress = (float)i / (NUM_LEDS - 1);
+            RgbColor blended = RgbColor::LinearBlend(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex), progress);
+            strip.SetPixelColor(i, blended.Dim(brightness));
+            strip.Show();
+            delay(30);
+          }
+        break;
       }
       power = true;
     }
@@ -569,6 +611,19 @@ void StartFirePixel(uint16_t index)
   animations.StartAnimation(index, time, [=](const AnimationParam& param) {
     FireUpdate(param, &states[index], start, end, index);
   });
+}
+
+void drawGradient(RgbColor color1, RgbColor color2) {
+    if (animations.IsAnimating()) {
+      animations.StopAll();
+    }
+    
+    for (uint16_t i = 0; i < NUM_LEDS; i++) {
+      float progress = (float)i / (NUM_LEDS - 1);
+      RgbColor blended = RgbColor::LinearBlend(color1, color2, progress);
+      strip.SetPixelColor(i, blended.Dim(brightness));
+    }
+    strip.Show();
 }
 
 void turnOff() {

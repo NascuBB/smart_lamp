@@ -11,7 +11,7 @@
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
 
-#define FW_VERSION "0.1.3"
+#define FW_VERSION "0.2.1"
 
 //======================================LED======================================
 //-------------------GLOBAL-------------------
@@ -19,19 +19,26 @@
 #define NUM_LEDS    30
 #define INTERVAL    20
 
-unsigned long lastUpdate = 0; // Время последнего обновления
+unsigned long lastUpdate = 0;
 uint8_t brightness = 255;
 uint8_t mode = 1;
 uint8_t speed = 3;
 bool power = true;
 bool powerStateChanged = false;
 char colorHex[8] = "#00ff00";
-char colorGrad1Hex[8] = "#0000ff";
-char colorGrad2Hex[8] = "#00ffff";
 
 NeoPixelBus<NeoGrbFeature, NeoEsp8266Dma800KbpsMethod> strip(NUM_LEDS); //port 3 rx
 //NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod> strip(NUM_LEDS, LED_PIN);
 //-------------------GLOBAL-------------------
+
+//-------------------Gradient-------------------
+#define MAX_STOPS    10
+
+GradientStop stops[10];
+uint8_t stopsCount = 3;
+//-------------------Gradient-------------------
+
+
 
 //-------------------Rainbow/RGB-------------------
 #define RAINBOW_SCALE 6   // больше = длиннее радуга, меньше = короче
@@ -79,7 +86,7 @@ void startAP() {
   }
   dnsServer.start(DNS_PORT, "*", apIP);  // Перехватываем все домены
   server.onNotFound([](AsyncWebServerRequest *request){
-    sendIndex(request, brightness, mode, speed, colorHex, colorGrad1Hex, colorGrad2Hex, power);
+    sendIndex(request, brightness, mode, speed, colorHex, stops, stopsCount, power);
   });
 
   //Serial.println("AP MODE запущен");
@@ -87,7 +94,7 @@ void startAP() {
 
 void beginServer(){
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    sendIndex(request, brightness, mode, speed, colorHex, colorGrad1Hex, colorGrad2Hex, power);
+    sendIndex(request, brightness, mode, speed, colorHex, stops, stopsCount, power);
   });
 
   server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -200,29 +207,63 @@ void beginServer(){
     }
   });
 
-  server.on("/api/setGradient", HTTP_POST, [](AsyncWebServerRequest *request){},
-    NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, data);
+  server.on("/api/setGradient", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, 
+  [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+
+    static String jsonBuffer; 
+
+    if (index == 0) {
+      jsonBuffer = "";
+      jsonBuffer.reserve(total); 
+    }
+
+    for (size_t i = 0; i < len; i++) {
+      jsonBuffer += (char)data[i];
+    }
+
+    if (index + len != total) {
+      return; 
+    }
+
+    StaticJsonDocument<2048> doc;
+    DeserializationError error = deserializeJson(doc, jsonBuffer);
+
+    jsonBuffer = String(); //free bufer
 
     if (error) {
-      request->send(400, F("application/json"), F("{\"error\":\"Invalid JSON\"}"));
+      char response[64]; 
+      snprintf(response, sizeof(response), "{\"error\":\"%s\"}", error.c_str());
+      request->send(400, "application/json", response);
       return;
     }
 
-    if (!doc.containsKey("c1") && !doc.containsKey("c2") ) {
-      request->send(400, F("application/json"), F("{\"error\":\"Missing colors\"}"));
+    JsonArray colorsJson = doc["colors"];
+    if (colorsJson.isNull() || colorsJson.size() < 2) {
+      request->send(400, F("application/json"), F("{\"error\":\"Need >1 colors\"}"));
       return;
     }
 
-    strcpy(colorGrad1Hex, doc["c1"]);
-    strcpy(colorGrad2Hex, doc["c2"]);
+    stopsCount = 0;
+    for (String hex : colorsJson) {
+      if (stopsCount >= MAX_STOPS) break;
+      strcpy(stops[stopsCount].colorHex, hex.c_str()); 
+      stopsCount++;
+    }
 
-    drawGradient(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex));
-    
+    JsonArray stopsJson = doc["stops"];
+    if (!stopsJson.isNull() && stopsJson.size() == stopsCount) {
+      for (int i = 0; i < stopsCount; i++) {
+        stops[i].position = stopsJson[i];
+      }
+    } else {
+      for (int i = 0; i < stopsCount; i++) {
+        stops[i].position = (float)i / (stopsCount - 1);
+      }
+    }
+
+    drawGradient(stops, stopsCount);
     request->send(200, F("application/json"), F("{\"success\":true}"));
-  });
+});
 
   server.on("/api/setBrightness", HTTP_POST, [](AsyncWebServerRequest *request){},
     NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
@@ -251,7 +292,7 @@ void beginServer(){
         break;
       }
       case 5: // gradient
-        drawGradient(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex));
+        drawGradient(stops, stopsCount);
         break;
     }
     request->send(200, F("application/json"), F("{\"success\":true}"));
@@ -309,7 +350,7 @@ void beginServer(){
         StartFirePixel(i);
       }
     } else if (mode == 5) {
-      drawGradient(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex));
+      drawGradient(stops, stopsCount);
     } else {
       animations.StopAll();
     }
@@ -385,6 +426,9 @@ bool connectToWiFi(SettingsSTA s) {
 
 //======================================Main======================================
 void setup() {
+  stops[0] = GradientStop{ 0.0, "#00b7ff" }; 
+  stops[1] = GradientStop{ 0.4, "#00ff33" };
+  stops[2] = GradientStop{ 1.0, "#ffe500" };
   pinMode(LED_PIN, OUTPUT);
 
   strip.Begin();
@@ -538,13 +582,30 @@ void loop() {
           }
         break;
         case 5:
-          for (uint16_t i = 0; i < NUM_LEDS; i++) {
-            float progress = (float)i / (NUM_LEDS - 1);
-            RgbColor blended = RgbColor::LinearBlend(FromHex(colorGrad1Hex), FromHex(colorGrad2Hex), progress);
-            strip.SetPixelColor(i, blended.Dim(brightness));
-            strip.Show();
-            delay(30);
+        for (uint16_t i = 0; i < NUM_LEDS; i++) {
+          float pos = (float)i / (NUM_LEDS - 1);
+
+          int startIndex = 0;
+          for (int k = 0; k < stopsCount - 1; k++) {
+            if (pos >= stops[k].position && pos <= stops[k+1].position) {
+              startIndex = k;
+              break;
+            }
           }
+
+          GradientStop start = stops[startIndex];
+          GradientStop end = stops[startIndex + 1];
+
+          float localProgress = (pos - start.position) / (end.position - start.position);
+          
+          if (end.position == start.position) localProgress = 0;
+
+          RgbColor blended = RgbColor::LinearBlend(FromHex(start.colorHex), FromHex(end.colorHex), localProgress);
+          
+          strip.SetPixelColor(i, blended.Dim(brightness));
+          strip.Show();
+          delay(30);
+        }
         break;
       }
       power = true;
@@ -596,9 +657,9 @@ void FireUpdate(const AnimationParam& param, FirePixelState* state, RgbColor sta
 
 RgbColor GetRandomFireColor()
 {
-  uint8_t r = 180 + random(75);     // от 180 до 255
-  uint8_t g = random(100);          // от 0 до 100
-  uint8_t b = 0;                    // пламя без синего
+  uint8_t r = 180 + random(75);
+  uint8_t g = random(100);
+  uint8_t b = 0;
   return RgbColor(r, g, b);
 }
 
@@ -613,17 +674,34 @@ void StartFirePixel(uint16_t index)
   });
 }
 
-void drawGradient(RgbColor color1, RgbColor color2) {
-    if (animations.IsAnimating()) {
-      animations.StopAll();
+void drawGradient(GradientStop* stops, int count) {
+  if (animations.IsAnimating()) animations.StopAll();
+
+  if (count < 2) return; 
+
+  for (uint16_t i = 0; i < NUM_LEDS; i++) {
+    float pos = (float)i / (NUM_LEDS - 1);
+
+    int startIndex = 0;
+    for (int k = 0; k < count - 1; k++) {
+      if (pos >= stops[k].position && pos <= stops[k+1].position) {
+        startIndex = k;
+        break;
+      }
     }
+
+    GradientStop start = stops[startIndex];
+    GradientStop end = stops[startIndex + 1];
+
+    float localProgress = (pos - start.position) / (end.position - start.position);
     
-    for (uint16_t i = 0; i < NUM_LEDS; i++) {
-      float progress = (float)i / (NUM_LEDS - 1);
-      RgbColor blended = RgbColor::LinearBlend(color1, color2, progress);
-      strip.SetPixelColor(i, blended.Dim(brightness));
-    }
-    strip.Show();
+    if (end.position == start.position) localProgress = 0;
+
+    RgbColor blended = RgbColor::LinearBlend(FromHex(start.colorHex), FromHex(end.colorHex), localProgress);
+    
+    strip.SetPixelColor(i, blended.Dim(brightness));
+  }
+  strip.Show();
 }
 
 void turnOff() {

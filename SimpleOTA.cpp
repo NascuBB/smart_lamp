@@ -14,8 +14,6 @@ bool performOTA(const char* firmwareURL, const ProgressCallback& onProgress) {
 
   String currentURL = firmwareURL;
   
-  // resolving redirections,
-  
   WiFiClientSecure client;
   setupSecureClient(client);
   client.setTimeout(6000);
@@ -23,7 +21,7 @@ bool performOTA(const char* firmwareURL, const ProgressCallback& onProgress) {
   HTTPClient http;
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
 
-  Serial.println(F("OTA: Resolving URL..."));
+  //Serial.println(F("OTA: Resolving URL..."));
 
   for (int i = 0; i < 5; i++) {
     if (!http.begin(client, currentURL)) {
@@ -44,7 +42,7 @@ bool performOTA(const char* firmwareURL, const ProgressCallback& onProgress) {
       if (newURL.length() > 5) {
         currentURL = newURL;
       } else {
-        Serial.println(F("OTA: Empty redirect header!"));
+        //Serial.println(F("OTA: Empty redirect header!"));
         http.end();
         return false;
       }

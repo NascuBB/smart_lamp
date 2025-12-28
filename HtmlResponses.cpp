@@ -298,22 +298,6 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
       color: var(--primary);
     }
 
-    .d {
-      display: grid;
-      grid-template-rows: 1fr; 
-      opacity: 1;
-      transition: grid-template-rows 0.15s ease-out, opacity 0.15s ease-out;
-    }
-
-    .d.hidden {
-      grid-template-rows: 0fr;
-      opacity: 0;           
-    }
-
-    .di {
-      overflow: hidden;
-    }
-
     .gradient-preview {
       width: 100%;
       height: 50px;
@@ -373,84 +357,203 @@ const char html_connecting[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 const char html_index_p1[] PROGMEM = R"rawliteral(
-<div class="page" id="home">
-  <h1>Управление светильником</h1>
-  
-  <div class="card">
-    <div class="status-row">
-      <span class="status-label">Состояние:</span>
-      <span class="status-value" id="status-value">Выключен</span>
-    </div>
-    <div class="status-row">
-      <span class="status-label">Последний режим:</span>
-      <span class="status-value" id="mode-value">Выключен</span>
-    </div>
-      <div class="status-row">
-      <span class="status-label">Скорость:</span>
-      <span class="status-value" id="speed-value">3</span>
-    </div>
-    <div class="status-row">
-      <span class="status-label">Яркость:</span>
-      <span class="status-value" id="brightness-value">0%</span>
-    </div>
-  </div>
+    <style>
 
-  <button class="power-btn btn off" id="power-btn">Включить</button>
+      .d {
+        display: grid;
+        grid-template-rows: 1fr;
+        opacity: 1;
+        transition: grid-template-rows 0.15s ease-out, opacity 0.15s ease-out;
+      }
 
-  <h2>Режимы</h2>
-  <div class="mode-selector">
-    <div class="btn mode-btn" data-mode="3">Статичный</div>
-    <div class="btn mode-btn" data-mode="2">Сплошной</div>
-    <div class="btn mode-btn" data-mode="1">Радуга</div>
-    <div class="btn mode-btn" data-mode="4">Огонь</div>
-    <div class="btn mode-btn" data-mode="5">Градиент</div>
-  </div>
+      .d.hidden {
+        grid-template-rows: 0fr;
+        opacity: 0;
+      }
 
-  <h2>Скорость</h2>
-  <div class="speed-selector">
-    <div class="btn speed-btn" data-speed="1">1</div>
-    <div class="btn speed-btn" data-speed="2">2</div>
-    <div class="btn speed-btn" data-speed="3">3</div>
-    <div class="btn speed-btn" data-speed="4">4</div>
-    <div class="btn speed-btn" data-speed="5">5</div>
-  </div>
+      .di {
+        overflow: hidden;
+      }
+      /* --- Стили для редактора градиента --- */
+      .gradient-editor-container {
+          margin: 1.5rem 0;
+          user-select: none; /* Чтобы текст не выделялся при перетаскивании */
+      }
 
-  <div id="col-div" class="d">
-    <div class="di">
-      <h2>Цвет</h2>
-      <input type="color" class="color-picker" id="color-picker" value="#6c5ce7">
-    </div>
-  </div>
+      .gradient-bar-wrap {
+          position: relative;
+          height: 40px; /* Высота области с ползунками */
+          margin-bottom: 10px;
+          cursor: crosshair; /* Курсор-крестик, намекающий на добавление */
+      }
 
-  <div id="grad-div" class="d">
-    <div class="di">
-      <h2>Градиент</h2>
-      <div style="display: flex; gap: 10px; justify-content: space-between;">
-        <input class="color-picker" type="color" id="grad1" style="flex: 1;">
-        <input class="color-picker" type="color" id="grad2" style="flex: 1;">
+      .gradient-preview-bg {
+          width: 100%;
+          height: 100%;
+          border-radius: 4px;
+          border: 2px solid var(--bg-light);
+          background: linear-gradient(90deg, #fff, #000); /* Заглушка */
+      }
+
+      .gradient-stop-marker {
+          position: absolute;
+          top: -5px; /* Чуть выше полоски */
+          width: 14px;
+          height: 50px; /* Выходит за пределы полоски вниз */
+          background-color: #fff;
+          border: 2px solid #333;
+          border-radius: 4px;
+          transform: translateX(-50%); /* Центрируем относительно точки */
+          cursor: grab;
+          z-index: 10;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+          transition: transform 0.1s, border-color 0.1s;
+      }
+
+      .gradient-stop-marker:hover {
+          z-index: 11;
+          transform: translateX(-50%) scale(1.1);
+      }
+
+      .gradient-stop-marker.active {
+          border-color: #fff;
+          background-color: var(--text);
+          z-index: 12;
+          box-shadow: 0 0 0 2px var(--primary);
+      }
+
+      .gradient-stop-marker::after {
+          /* Цветовой квадратик внутри маркера */
+          content: '';
+          display: block;
+          width: 100%;
+          height: 20px;
+          background-color: inherit; /* Будем менять через JS */
+          margin-top: 26px;
+          border-top: 1px solid #ccc;
+      }
+
+      .gradient-controls-row {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+          background: var(--bg-light);
+          padding: 10px;
+          border-radius: 8px;
+      }
+
+      .btn-danger {
+          background-color: var(--danger);
+          color: white;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 4px;
+          cursor: pointer;
+      }
+      .btn-danger:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+      }
+    </style>
+
+    <div class="page" id="home">
+      <h1>Управление светильником</h1>
+
+      <div class="card">
+        <div class="status-row">
+          <span class="status-label">Состояние:</span>
+          <span class="status-value" id="status-value">Выключен</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Последний режим:</span>
+          <span class="status-value" id="mode-value">Выключен</span>
+        </div>
+          <div class="status-row">
+          <span class="status-label">Скорость:</span>
+          <span class="status-value" id="speed-value">3</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">Яркость:</span>
+          <span class="status-value" id="brightness-value">0%</span>
+        </div>
       </div>
-      <div id="gradient-preview" class="gradient-preview"></div>
+
+      <button class="power-btn btn off" id="power-btn">Включить</button>
+
+      <h2>Режимы</h2>
+      <div class="mode-selector">
+        <div class="btn mode-btn" data-mode="3">Статичный</div>
+        <div class="btn mode-btn" data-mode="2">Сплошной</div>
+        <div class="btn mode-btn" data-mode="1">Радуга</div>
+        <div class="btn mode-btn" data-mode="4">Огонь</div>
+        <div class="btn mode-btn" data-mode="5">Градиент</div>
+      </div>
+
+      <h2>Скорость</h2>
+      <div class="speed-selector">
+        <div class="btn speed-btn" data-speed="1">1</div>
+        <div class="btn speed-btn" data-speed="2">2</div>
+        <div class="btn speed-btn" data-speed="3">3</div>
+        <div class="btn speed-btn" data-speed="4">4</div>
+        <div class="btn speed-btn" data-speed="5">5</div>
+      </div>
+
+      <div id="col-div" class="d">
+        <div class="di">
+          <h2>Цвет</h2>
+          <input type="color" class="color-picker" id="color-picker" value="#6c5ce7">
+        </div>
+      </div>
+
+      <div id="grad-div" class="d">
+        <div class="di">
+          <h2>Градиент</h2>
+          <div class="gradient-editor-container">
+              <div class="gradient-bar-wrap" id="grad-box">
+                  <div class="gradient-preview-bg" id="grad-preview"></div>
+                  </div>
+
+              <div class="gradient-controls-row">
+                  <div class="textfield-container" style="margin: 0;">
+                      <label style="font-size: 0.8rem; color: var(--text-dim);">Цвет точки</label>
+                      <input type="color" class="color-picker" id="stop-color-picker" style="width: 60px; height: 35px; margin: 0;">
+                  </div>
+
+                  <div class="textfield-container" style="flex: 1; margin: 0;">
+                      <label style="font-size: 0.8rem; color: var(--text-dim);">Позиция (%)</label>
+                      <span id="stop-position-val" style="font-weight: bold;">0%</span>
+                  </div>
+
+                  <button class="btn-danger" id="btn-delete-stop">Удалить точку</button>
+              </div>
+
+              <p style="margin-top: 5px; font-size: 0.8rem; color: var(--text-dim);">
+                  Кликните по полосе, чтобы добавить точку (макс 10). Перетаскивайте для смены позиции.
+              </p>
+          </div>
+        </div>
+      </div>
+
+
+      <h2>Яркость</h2>
+      <div class="slider-container">
+      <div class="slider-label">
+        <span>Уровень яркости:</span>
+        <span id="brightness-slider-value">50%</span>
+      </div>
+        <input type="range" min="0" max="255" value="50" class="slider" id="brightness-slider">
+        <span id="brightness-warn-span" style="color: var(--warning); transition: 0.5s; opacity: 0;">При понижении яркости в Статичном режиме меняеться цветопередача</span>
+      </div>
     </div>
-  </div>
-
-
-  <h2>Яркость</h2>
-  <div class="slider-container">
-  <div class="slider-label">
-    <span>Уровень яркости:</span>
-    <span id="brightness-slider-value">50%</span>
-  </div>
-    <input type="range" min="0" max="255" value="50" class="slider" id="brightness-slider">
-    <span id="brightness-warn-span" style="color: var(--warning); transition: 0.5s; opacity: 0;">При понижении яркости в Статичном режиме меняеться цветопередача</span>
-  </div>
-</div>
 
 <script>
-    const state = {
+  const state = {
 )rawliteral";
 
 const char html_index_p2[] PROGMEM = R"rawliteral(
-function init() {
+let gradientStops = [];
+
+  function init() {
     changeCards();
     bprecent = Math.round((state.brightness * 100) / 255);
     brightnessValue.textContent = `${bprecent}%`;
@@ -460,15 +563,14 @@ function init() {
     colorPicker.style.backgroundColor = state.color;
     modeValue.textContent = getModeName(state.mode);
     speedValue.textContent = state.speed;
-    colorGrad1Picker.value = state.grad1;
-    colorGrad1Picker.style.backgroundColor = state.grad1;
-    colorGrad2Picker.value = state.grad2;
-    colorGrad2Picker.style.backgroundColor = state.grad2;
-    updateGradientVisual();
     updatePowerState();
-    colorGrad1Picker.addEventListener('input', handleGradientChange);
-    colorGrad2Picker.addEventListener('input', handleGradientChange);
+    initGradient();
   }
+
+  let selectedStopId = 1;
+  let isDragging = false;
+  let dragStopId = null;
+
   const powerBtn = document.getElementById('power-btn');
   const statusValue = document.getElementById('status-value');
   const modeValue = document.getElementById('mode-value');
@@ -480,11 +582,15 @@ function init() {
   const brightnessSlider = document.getElementById('brightness-slider');
   const brightnessSliderValue = document.getElementById('brightness-slider-value');
   const brightnessWarnSpan = document.getElementById('brightness-warn-span');
-  const colorGrad1Picker = document.getElementById('grad1');
-  const colorGrad2Picker = document.getElementById('grad2');
-  const gradientPreview = document.getElementById('gradient-preview');
+
+  const gradBox = document.getElementById('grad-box');
+  const gradPreview = document.getElementById('grad-preview');
+  const stopColorPicker = document.getElementById('stop-color-picker');
+  const btnDeleteStop = document.getElementById('btn-delete-stop');
+  const stopPosLabel = document.getElementById('stop-position-val');
+
   const gradDiv = document.getElementById('grad-div');
-  const colDiv = document.getElementById('col-div'); 
+  const colDiv = document.getElementById('col-div');
   powerBtn.addEventListener('click', () => {
     state.power = !state.power;
     fetch('/api/setPower', {
@@ -504,16 +610,6 @@ function init() {
         state.power = !state.power;
       });
   });
-
-  function updateGradientVisual() {
-    const c1 = colorGrad1Picker.value;
-    const c2 = colorGrad2Picker.value;
-
-    gradientPreview.style.background = `linear-gradient(90deg, ${c1}, ${c2})`;
-    
-    state.grad1 = c1;
-    state.grad2 = c2;
-  }
 
   function updatePowerState() {
     if (state.power) {
@@ -543,7 +639,7 @@ function init() {
           btn.classList.remove('active');
           return;
         }
-      });      
+      });
       speedBtns.forEach(btn => {
         if(btn.dataset.speed == state.speed) {
           btn.classList.remove('active');
@@ -556,7 +652,10 @@ function init() {
     btn.addEventListener('click', () => {
       if (!state.power) return;
       modeBtns.forEach(b => b.classList.remove('active'));
-      
+
+      state.mode = +btn.dataset.mode;
+      changeCards();
+
       fetch('/api/setMode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -580,7 +679,7 @@ function init() {
           }
         });
       });
-      
+
     });
   });
 
@@ -589,7 +688,7 @@ function init() {
       if (!state.power) return;
 
       speedBtns.forEach(b => b.classList.remove('active'));
-      
+
       fetch('/api/setSpeed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -612,7 +711,7 @@ function init() {
           }
         });
       });
-      
+
     });
   });
 
@@ -629,6 +728,7 @@ function init() {
       default:
           colDiv.classList.add('hidden');
           gradDiv.classList.add('hidden');
+        break;
     }
   }
 
@@ -643,37 +743,199 @@ function init() {
     return modes[mode] || mode;
   }
 
-  let gradientDebounceTimer = null;
+const generateId = () => Date.now() + Math.random();
 
-  function handleGradientChange() {
-    if (!state.power) return;
-    if (state.mode != 5) return;
+function initGradient() {
+  state.gSs.forEach((s, index) => {
+    gradientStops.push({
+      id: generateId(),
+      pos: s.pos * 100,
+      color: s.color,
+      outline: s.color
+    });
+  });
+  selectedStopId = gradientStops[0].id;
+  renderStops();
+  updatePreview();
+  updateControls();
+}
 
-    updateGradientVisual();
+function renderStops() {
+  const oldMarkers = gradBox.querySelectorAll('.gradient-stop-marker');
+  oldMarkers.forEach(m => m.remove());
 
-    clearTimeout(gradientDebounceTimer);
+  gradientStops.forEach(stop => {
+    const el = document.createElement('div');
+    el.className = 'gradient-stop-marker';
+    if (stop.id === selectedStopId) el.classList.add('active');
 
-    gradientDebounceTimer = setTimeout(() => {
-      
-      fetch('/api/setGradient', {
+    el.style.left = `${stop.pos}%`;
+    el.style.backgroundColor = stop.color;
+
+    el.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      startDrag(stop.id, e);
+    });
+
+    el.addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+      startDrag(stop.id, e.touches[0]);
+    }, {passive: false});
+
+    gradBox.appendChild(el);
+  });
+}
+
+function updatePreview() {
+  const sorted = [...gradientStops].sort((a, b) => a.pos - b.pos);
+  const cssGradient = sorted.map(s => `${s.color} ${s.pos}%`).join(', ');
+  gradPreview.style.background = `linear-gradient(90deg, ${cssGradient})`;
+}
+
+
+function updateControls(changePicker = true) {
+  const stop = gradientStops.find(s => s.id === selectedStopId);
+  if (stop) {
+    if(changePicker) stopColorPicker.value = stop.color;
+    stopColorPicker.style.backgroundColor = stop.outline;
+    stopPosLabel.textContent = Math.round(stop.pos) + '%';
+
+    btnDeleteStop.disabled = gradientStops.length <= 2;
+  }
+}
+
+stopColorPicker.addEventListener('input', (e) => {
+  const stop = gradientStops.find(s => s.id === selectedStopId);
+  if (stop) {
+    stop.color = e.target.value;
+    renderStops();
+    updatePreview();
+    sendGradientDebounced();
+  }
+});
+
+btnDeleteStop.addEventListener('click', () => {
+  if (gradientStops.length <= 2) return;
+
+  gradientStops = gradientStops.filter(s => s.id !== selectedStopId);
+
+  selectedStopId = gradientStops[0].id;
+
+  renderStops();
+  updatePreview();
+  updateControls();
+  sendGradientDebounced();
+});
+
+gradBox.addEventListener('mousedown', (e) => {
+  if (e.target !== gradBox && e.target !== gradPreview) return;
+  addStopAtEvent(e);
+});
+
+function addStopAtEvent(e) {
+  if (gradientStops.length >= 10) {
+    alert("Максимум 10 точек");
+    return;
+  }
+
+  const rect = gradBox.getBoundingClientRect();
+  let x = e.clientX - rect.left;
+  let percent = (x / rect.width) * 100;
+  percent = Math.max(0, Math.min(100, percent));
+
+  const newColor = stopColorPicker.value;
+
+  const newId = generateId();
+  gradientStops.push({ id: newId, pos: percent, color: newColor, outline: newColor });
+
+  selectedStopId = newId;
+
+  renderStops();
+  updatePreview();
+  updateControls();
+  sendGradientDebounced();
+}
+
+function startDrag(id, eventClient) {
+  isDragging = true;
+  dragStopId = id;
+  selectedStopId = id;
+  renderStops(); 
+  updateControls();
+}
+
+
+document.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  moveStop(e.clientX);
+});
+document.addEventListener('mouseup', () => {
+  if (isDragging) {
+    isDragging = false;
+    dragStopId = null;
+    sendGradientDebounced();
+  }
+});
+
+document.addEventListener('touchmove', (e) => {
+  if (!isDragging) return;
+  e.preventDefault();
+  moveStop(e.touches[0].clientX);
+}, {passive: false});
+document.addEventListener('touchend', () => {
+  if (isDragging) {
+    isDragging = false;
+    sendGradientDebounced();
+  }
+});
+
+function moveStop(clientX) {
+  const rect = gradBox.getBoundingClientRect();
+  let x = clientX - rect.left;
+  let percent = (x / rect.width) * 100;
+  percent = Math.max(0, Math.min(100, percent));
+
+  const stop = gradientStops.find(s => s.id === dragStopId);
+  if (stop) {
+    stop.pos = percent;
+    renderStops();
+    updatePreview();
+    updateControls();
+  }
+}
+
+let gradDebounceTimer = null;
+function sendGradientDebounced() {
+  if (!state.power) return;
+  if (state.mode != 5) return;
+  clearTimeout(gradDebounceTimer);
+  gradDebounceTimer = setTimeout(() => {
+    const sortedStops = [...gradientStops].sort((a, b) => a.pos - b.pos);
+
+  const payload = {
+      colors: sortedStops.map(s => s.color),
+      stops: sortedStops.map(s => parseFloat((s.pos / 100).toFixed(4)))
+    };
+
+    // console.log("Sending:", payload);
+
+    fetch('/api/setGradient', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          c1: state.grad1, 
-          c2: state.grad2 
-        })
-      })
-      .then(response => {
-        if (!response.ok) throw new Error('Error setting gradient');
-        else{
-          colorGrad2Picker.style.backgroundColor = state.grad2;
-          colorGrad1Picker.style.backgroundColor = state.grad1;
-        }
-      })
-      .catch(err => console.error(err));
-      
-    }, 300); 
-  }
+        body: JSON.stringify(payload)
+    }).then(response => {
+      if (!response.ok) throw new Error('Ошибка запроса');
+      return response.json();
+    })
+    .then(data => {
+      gradientStops.forEach(stop => {
+        stop.outline = stop.color;
+      });
+      updateControls(false);
+    }).catch(err => console.error(err));
+
+  }, 300);
+}
 
   let colorDebounceTimer = null;
 
@@ -697,7 +959,7 @@ function init() {
         colorPicker.style.backgroundColor = state.color;
       })
       .catch(err => {
-        console.error('Ошибка:', err);
+        console.error('', err);
       });
     }, 300);
   });
@@ -904,14 +1166,13 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 </script>
 )rawliteral";
 
-void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const char* colorGrad1Hex, const char* colorGrad2Hex, const bool power) {
-  //Serial.printf("Free heap before sendIndex: %d\n", ESP.getFreeHeap());
+void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const GradientStop* gradientStops, const int stopsCount, const bool power) {
   auto currentPart = std::make_shared<uint8_t>(0);
   auto sentBytes = std::make_shared<size_t>(0);
 
   AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
     [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      size_t len;
+      size_t len = 0;
       size_t totalLen;
       size_t remaining;
 
@@ -920,67 +1181,81 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
         switch((*currentPart)){
           case 0:
             totalLen = strlen_P(html_template_p1);
-
             if (*sentBytes >= totalLen) {
-              //Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
               (*currentPart) = 1;
               *sentBytes = 0;
               continue;
             } else {
               remaining = totalLen - (*sentBytes);
               len = remaining > maxLen ? maxLen : remaining;
-
               memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
               *sentBytes += len;
-              break;
+              break; 
             }
+
           case 1:
             totalLen = strlen_P(html_index_p1);
-
             if (*sentBytes >= totalLen) {
-              //Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
               (*currentPart) = 2;
               *sentBytes = 0;
               continue;
             } else {
               remaining = totalLen - (*sentBytes);
               len = remaining > maxLen ? maxLen : remaining;
-
               memcpy_P(buffer, html_index_p1 + (*sentBytes), len);
               *sentBytes += len;
               break;
             }
+
           case 2:
-            len = snprintf((char*)buffer, maxLen,
-            "brightness: %d, mode: %d, speed: %d, power: %s, color: '%s', grad1: '%s', grad2: '%s'};\n",
-            brightness, mode, speed, power ? "true" : "false", colorHex, colorGrad1Hex, colorGrad2Hex);
-            (*currentPart)++;
-          break;
+            {
+              int offset = 0;
+              offset += snprintf((char*)buffer + offset, maxLen - offset,
+                "brightness: %d, mode: %d, speed: %d, power: %s, color: '%s', gSs: [",
+                brightness, mode, speed, power ? "true" : "false", colorHex);
+
+              for (size_t i = 0; i < stopsCount; i++) {
+                if ((maxLen - offset) < 64) break;
+
+                offset += snprintf((char*)buffer + offset, maxLen - offset,
+                  "{pos:%.2f,color:'%s'}%s", 
+                  gradientStops[i].position, 
+                  gradientStops[i].colorHex,
+                  (i < stopsCount - 1) ? "," : ""
+                );
+              }
+              offset += snprintf((char*)buffer + offset, maxLen - offset, "]};\n");
+
+              len = offset;
+              
+              (*currentPart)++;
+            }
+            break;
+
+
           case 3:
             totalLen = strlen_P(html_index_p2);
-
             if (*sentBytes >= totalLen) {
-              //Serial.printf("Free heap pri perechode na punkt 2: %d\n", ESP.getFreeHeap());
               (*currentPart) = 4;
               *sentBytes = 0;
               continue;
             } else {
               remaining = totalLen - (*sentBytes);
               len = remaining > maxLen ? maxLen : remaining;
-
               memcpy_P(buffer, html_index_p2 + (*sentBytes), len);
               *sentBytes += len;
               break;
             }
-          break;
+
           case 4:
             len = strlen_P(html_template_p2);
-            if (len > maxLen) len = maxLen;
+            if (len > maxLen) len = maxLen; 
             memcpy_P(buffer, html_template_p2, len);
             (*currentPart)++;
-          break;
+            break;
+
           case 5:
-          return 0;
+            return 0;
         }
         return len;
       }

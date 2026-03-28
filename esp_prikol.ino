@@ -504,6 +504,15 @@ void loop() {
           }
           strip.Show();
           delay(200);
+          if(mode == 3) {
+            RgbColor col = FromHex(colorHex).Dim(brightness);
+            for (int i = 0; i < NUM_LEDS; i++) {
+              strip.SetPixelColor(i, col);
+            }
+            strip.Show();
+          } else if (mode == 5) {
+            drawGradient(stops, stopsCount);
+          }
         }
         return;
     }

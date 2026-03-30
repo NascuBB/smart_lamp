@@ -348,7 +348,7 @@ const char html_connecting[] PROGMEM = R"rawliteral(
         } else if(data.connected == 2) {
           document.getElementById('msg').innerHTML = 'Ошибка подключения, поменяйте данные для подключения к сети и повторите попытку';
         } else {
-          setTimeout(checkConnection, 1000);
+          setTimeout(checkConnection, 15000);
         }
       });
   }
@@ -1011,6 +1011,33 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
 <div class="page active" id="settings">
   <h1>Настройки</h1>
 
+  <style>
+    .network-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0 0 5px;
+      flex-wrap: wrap;
+    }
+
+    #sta-network-list {
+      width: 100%;
+      min-height: 120px;
+      padding: 0.3rem;
+    }
+
+    .network-status {
+      color: var(--text-dim);
+      min-height: 1.2rem;
+    }
+
+    .network-hint {
+      color: var(--text-dim);
+      margin: 0.4rem 0 0 5px;
+      font-size: 0.9rem;
+    }
+  </style>
+
   <div class="card">
     <h3 class="secondary-title">Настройка сети (STA mode)</h3>
     <div class="textfield-container">
@@ -1021,6 +1048,15 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
       <label for="pass-sta">Пароль сети</label>
       <input type="text" class="textfield" id="pass-sta">
     </div>
+    <div class="textfield-container" style="width: 100%;">
+      <label for="sta-network-list">Доступные сети в радиусе</label>
+      <select class="textfield" id="sta-network-list" size="5"></select>
+    </div>
+    <div class="network-actions">
+      <button class="btn btn-primary" id="refresh-networks" type="button">Обновить сети</button>
+      <span class="network-status" id="scan-status">Сети еще не загружены</span>
+    </div>
+    <span class="network-hint">Нажмите на сеть для подключения. Если сеть новая, будет запрошен пароль.</span>
     <div class="checkbox-container">
       <input type="checkbox" class="checkbox" id="sta-mode">
       <label for="sta-mode">Подключаться к существующей сети (режим STA)</label>
@@ -1071,6 +1107,134 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
   const ssidApInput = document.getElementById('ssid-ap');
   const passApInput = document.getElementById('pass-ap');
   const passReqApCheckbox = document.getElementById('pass-req-ap');
+  const staNetworksSelect = document.getElementById('sta-network-list');
+  const refreshNetworksButton = document.getElementById('refresh-networks');
+  const scanStatus = document.getElementById('scan-status');
+
+  let networksTimerId = null;
+  let connectPollTimerId = null;
+
+  function renderNetworks(networks) {
+    staNetworksSelect.innerHTML = '';
+
+    if (!Array.isArray(networks) || networks.length === 0) {
+      const noNetworksOption = document.createElement('option');
+      noNetworksOption.textContent = 'Сети не найдены';
+      noNetworksOption.disabled = true;
+      staNetworksSelect.appendChild(noNetworksOption);
+      return;
+    }
+
+    networks.sort((a, b) => b.rssi - a.rssi);
+
+    networks.forEach((network) => {
+      const option = document.createElement('option');
+      const ssid = network.ssid || '(скрытая сеть)';
+      const securityLabel = network.secure ? 'защищена' : 'открытая';
+      option.value = network.ssid || '';
+      option.textContent = `${ssid} (${network.rssi} dBm, ${securityLabel})`;
+      staNetworksSelect.appendChild(option);
+    });
+  }
+
+  async function scanNetworks(force = false) {
+    scanStatus.textContent = 'Сканирование...';
+    refreshNetworksButton.disabled = true;
+
+    try {
+      const response = await fetch(force ? '/api/networks?force=1' : '/api/networks');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const networks = Array.isArray(data.networks) ? data.networks : [];
+      renderNetworks(networks);
+      if (data.scanning) {
+        scanStatus.textContent = `Найдено сетей: ${networks.length}`;
+      } else {
+        scanStatus.textContent = `Найдено сетей: ${networks.length}`;
+      }
+    } catch (error) {
+      scanStatus.textContent = 'Ошибка сканирования сетей';
+      console.error('Ошибка сканирования Wi-Fi:', error);
+    } finally {
+      refreshNetworksButton.disabled = false;
+    }
+  }
+
+  async function connectToNetwork(ssid, password = null) {
+    const payload = { ssid };
+    if (password !== null) {
+      payload.password = password;
+      payload.passwordProvided = true;
+    }
+
+    const response = await fetch('/api/connect_network', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (e) {
+      data = {};
+    }
+
+    if (!response.ok) {
+      if (data.requiresPassword) {
+        const entered = prompt(`Введите пароль для сети ${ssid}`);
+        if (entered === null) {
+          return;
+        }
+
+        await connectToNetwork(ssid, entered);
+        return;
+      }
+
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    scanStatus.textContent = `Подключение к ${ssid}...`;
+    pollConnectionStatus(ssid);
+  }
+
+  async function pollConnectionStatus(ssidForRetry) {
+    if (connectPollTimerId) {
+      clearTimeout(connectPollTimerId);
+      connectPollTimerId = null;
+    }
+
+    try {
+      const response = await fetch('/api/connection_status');
+      const data = await response.json();
+
+      if (data.connected === 0) {
+        connectPollTimerId = setTimeout(() => pollConnectionStatus(ssidForRetry), 1000);
+        return;
+      }
+
+      if (data.connected === 1) {
+        scanStatus.textContent = `Подключено, IP: ${data.ip}`;
+        alert(`Светильник подключен. Новый адрес: http://${data.ip}`);
+        return;
+      }
+
+      if (data.connected === 2 && data.needsPassword && ssidForRetry) {
+        const entered = prompt(`Пароль для ${ssidForRetry} не подошел. Введите новый пароль`);
+        if (entered !== null && entered.length > 0) {
+          await connectToNetwork(ssidForRetry, entered);
+          return;
+        }
+      }
+
+      scanStatus.textContent = 'Не удалось подключиться. Контроллер пытается вернуться к предыдущей сети.';
+    } catch (error) {
+      scanStatus.textContent = 'Устройство могло уже переключиться на новую сеть. Подключитесь к ней и откройте lamp.local или новый IP.';
+    }
+  }
 
   document.addEventListener('DOMContentLoaded', (event) => {
     ssidStaInput.value = settings.ssidSta;
@@ -1079,6 +1243,32 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     ssidApInput.value = settings.ssidAp;
     passApInput.value = settings.passwordAp;
     passReqApCheckbox.checked = settings.requiresPassAp;
+
+    scanNetworks(true);
+    if (networksTimerId) {
+      clearInterval(networksTimerId);
+    }
+    networksTimerId = setInterval(() => scanNetworks(false), 30000);
+  });
+
+  window.addEventListener('beforeunload', () => {
+    if (networksTimerId) {
+      clearInterval(networksTimerId);
+    }
+  });
+
+  refreshNetworksButton.addEventListener('click', () => {
+    scanNetworks(true);
+  });
+
+  staNetworksSelect.addEventListener('change', () => {
+    if (staNetworksSelect.value) {
+      ssidStaInput.value = staNetworksSelect.value;
+      connectToNetwork(staNetworksSelect.value).catch((error) => {
+        scanStatus.textContent = 'Ошибка запуска подключения';
+        console.error('Ошибка подключения к выбранной сети:', error);
+      });
+    }
   });
 
   function reboot() {
@@ -1260,6 +1450,113 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
         return len;
       }
       return 0;
+    });
+
+  request->send(response);
+}
+
+void sendSettings(AsyncWebServerRequest *request, const SettingsSTA& sta, const SettingsAP& ap) {
+  auto currentPart = std::make_shared<uint8_t>(0);
+  auto sentBytes = std::make_shared<size_t>(0);
+  auto settingsPayload = std::make_shared<String>();
+
+  settingsPayload->reserve(220);
+  settingsPayload->concat("ssidSta: '");
+  settingsPayload->concat(sta.ssid);
+  settingsPayload->concat("',passwordSta: '");
+  settingsPayload->concat(sta.password);
+  settingsPayload->concat("',useStaMode: ");
+  settingsPayload->concat(sta.useStaMode ? "true" : "false");
+  settingsPayload->concat(",ssidAp: '");
+  settingsPayload->concat(ap.ssid);
+  settingsPayload->concat("',passwordAp: '");
+  settingsPayload->concat(ap.password);
+  settingsPayload->concat("',requiresPassAp: ");
+  settingsPayload->concat(ap.requirePass ? "true" : "false");
+  settingsPayload->concat(" };\n");
+
+  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
+    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      size_t len = 0;
+      size_t totalLen;
+      size_t remaining;
+
+      while (true) {
+        switch ((*currentPart)) {
+          case 0:
+            totalLen = strlen_P(html_template_p1);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 1;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 1:
+            totalLen = strlen_P(html_settings_p1);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 2;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_settings_p1 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 2:
+            totalLen = settingsPayload->length();
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 3;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, settingsPayload->c_str() + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 3:
+            totalLen = strlen_P(html_settings_p2);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 4;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_settings_p2 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 4:
+            totalLen = strlen_P(html_template_p2);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 5;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p2 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 5:
+            return 0;
+        }
+      }
     });
 
   request->send(response);

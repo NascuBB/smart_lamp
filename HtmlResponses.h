@@ -14,6 +14,7 @@ struct GradientStop {
 
 void sendWrap(AsyncWebServerRequest *request, const char* progmem_content);
 void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const GradientStop* gradientStops, const int stopsCount, const bool power);
+void sendSettings(AsyncWebServerRequest *request, const SettingsSTA& sta, const SettingsAP& ap);
 //String index_P(const uint8_t brightness, const uint8_t mode, const bool power, const char* color);
 // String wrap_P(const char* progmem_content, const Settings& settings, const Last& last, int brightness);
 

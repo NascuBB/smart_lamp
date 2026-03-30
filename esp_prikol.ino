@@ -27,6 +27,8 @@ bool power = true;
 bool powerStateChanged = false;
 char colorHex[8] = "#00ff00";
 
+uint8_t ConectionCounter = 1;
+
 NeoPixelBus<NeoGrbFeature, NeoEsp8266Dma800KbpsMethod> strip(NUM_LEDS); //port 3 rx
 //NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod> strip(NUM_LEDS, LED_PIN);
 //-------------------GLOBAL-------------------
@@ -70,7 +72,186 @@ bool isConnecting = false;
 bool isConnected = false;
 
 bool isUpdateRequested = false;
+
+String cachedNetworksJson = "[]";
+unsigned long lastNetworksScanAt = 0;
+bool isNetworksScanInProgress = false;
+char pendingConnectSsid[32] = "";
+char pendingConnectPassword[32] = "";
+bool pendingConnectUsedSavedPassword = false;
+bool pendingConnectSaveProvidedCredentials = false;
+char rollbackConnectSsid[32] = "";
+char rollbackConnectPassword[32] = "";
+bool hasRollbackConnectCredentials = false;
+
+bool hasQueuedConnectRequest = false;
 //======================================Server======================================
+
+void startAP();
+
+String escapeJson(const String& input) {
+  String output;
+  output.reserve(input.length() + 8);
+
+  for (size_t i = 0; i < input.length(); i++) {
+    char c = input[i];
+    if (c == '\\') {
+      output += "\\\\";
+    } else if (c == '"') {
+      output += "\\\"";
+    } else {
+      output += c;
+    }
+  }
+
+  return output;
+}
+
+String buildNetworksJsonFromScanResults(const int count) {
+  String result = "[";
+  result.reserve((count * 48) + 2);
+
+  for (int i = 0; i < count; i++) {
+    if (i > 0) {
+      result += ',';
+    }
+
+    String ssidEscaped = escapeJson(WiFi.SSID(i));
+    bool secure = WiFi.encryptionType(i) != ENC_TYPE_NONE;
+    result += "{\"ssid\":\"";
+    result += ssidEscaped;
+    result += "\",\"rssi\":";
+    result += String(WiFi.RSSI(i));
+    result += ",\"secure\":";
+    result += secure ? "true" : "false";
+    result += '}';
+  }
+
+  result += ']';
+  return result;
+}
+
+void startNetworksScan(bool force) {
+  if (WiFi.getMode() == WIFI_AP) {
+    WiFi.mode(WIFI_AP_STA);
+  }
+
+  int scanState = WiFi.scanComplete();
+  if (scanState == WIFI_SCAN_RUNNING) {
+    isNetworksScanInProgress = true;
+    return;
+  }
+
+  if (force) {
+    WiFi.scanDelete();
+  }
+
+  WiFi.scanNetworks(true, true);
+  isNetworksScanInProgress = true;
+}
+
+void updateNetworksScanCache() {
+  int scanState = WiFi.scanComplete();
+
+  if (scanState == WIFI_SCAN_RUNNING) {
+    isNetworksScanInProgress = true;
+    return;
+  }
+
+  if (scanState == WIFI_SCAN_FAILED) {
+    isNetworksScanInProgress = false;
+    return;
+  }
+
+  if (scanState >= 0) {
+    cachedNetworksJson = buildNetworksJsonFromScanResults(scanState);
+    lastNetworksScanAt = millis();
+    isNetworksScanInProgress = false;
+    WiFi.scanDelete();
+  }
+}
+
+bool isScannedNetworkOpen(const char* ssid, bool* foundOut) {
+  if (foundOut != nullptr) {
+    *foundOut = false;
+  }
+
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return false;
+  }
+
+  int scanState = WiFi.scanComplete();
+  if (scanState < 0) {
+    return false;
+  }
+
+  for (int i = 0; i < scanState; i++) {
+    if (strcmp(WiFi.SSID(i).c_str(), ssid) == 0) {
+      if (foundOut != nullptr) {
+        *foundOut = true;
+      }
+
+      return WiFi.encryptionType(i) == ENC_TYPE_NONE;
+    }
+  }
+
+  return false;
+}
+
+bool beginConnectionAttempt(const char* ssid, const char* password, bool usedSavedPassword, bool saveProvidedCredentials) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return false;
+  }
+  
+  const char* safePassword = (password == nullptr) ? "" : password;
+
+  SettingsSTA currentStaSettings = loadSTASettings();
+  if (currentStaSettings.ssid[0] != '\0' && strcmp(currentStaSettings.ssid, ssid) != 0) {
+    strlcpy(rollbackConnectSsid, currentStaSettings.ssid, sizeof(rollbackConnectSsid));
+    strlcpy(rollbackConnectPassword, currentStaSettings.password, sizeof(rollbackConnectPassword));
+    hasRollbackConnectCredentials = true;
+  } else {
+    hasRollbackConnectCredentials = false;
+    rollbackConnectSsid[0] = '\0';
+    rollbackConnectPassword[0] = '\0';
+  }
+
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(false);
+  WiFi.mode(WIFI_STA);
+
+  //Serial.println("Attempting to connect");
+  connectionStartTime = millis();
+
+  /*
+  Serial.print("SSID: ");
+  Serial.println(ssid);
+  Serial.print("Password: ");
+  Serial.println(safePassword);
+  */
+
+  WiFi.begin(ssid, safePassword);
+
+  isConnecting = true;
+  pendingConnectUsedSavedPassword = usedSavedPassword;
+  pendingConnectSaveProvidedCredentials = saveProvidedCredentials;
+  strlcpy(pendingConnectSsid, ssid, sizeof(pendingConnectSsid));
+  strlcpy(pendingConnectPassword, safePassword, sizeof(pendingConnectPassword));
+
+  return true;
+}
+
+void restorePreviousConnectionAfterFailure() {
+  if (hasRollbackConnectCredentials && rollbackConnectSsid[0] != '\0') {
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+
+    WiFi.begin(rollbackConnectSsid, rollbackConnectPassword);
+    return;
+  }
+
+  startAP();
+}
 
 //======================================Server Init======================================
 void startAP() {
@@ -101,22 +282,7 @@ void beginServer(){
     SettingsSTA sSta = loadSTASettings();
     SettingsAP sAp = loadAPSettings();
 
-    AsyncResponseStream *response = request->beginResponseStream("text/html");
-
-    response->print(FPSTR(html_template_p1));
-    response->print(FPSTR(html_settings_p1));
-    
-    response->printf("ssidSta: '%s',", sSta.ssid);
-    response->printf("passwordSta: '%s',", sSta.password);
-    response->printf("useStaMode: %s,", sSta.useStaMode ? "true" : "false");  
-    response->printf("ssidAp: '%s',", sAp.ssid);
-    response->printf("passwordAp: '%s',", sAp.password);
-    response->printf("requiresPassAp: %s };\n", sAp.requirePass ? "true" : "false");
-
-    response->print(FPSTR(html_settings_p2));
-    response->print(FPSTR(html_template_p2));
-
-    request->send(response);
+    sendSettings(request, sSta, sAp);
   });
 
   server.on("/connecting", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -148,6 +314,9 @@ void beginServer(){
       settings.useStaMode = doc["useStaMode"];
 
       saveSTASettings(settings);
+      if (settings.ssid[0] != '\0') {
+        upsertSavedWiFiNetwork(settings.ssid, settings.password, true);
+      }
 
       request->send(200, F("application/json"), F("{\"status\":\"saved\"}"));
   });
@@ -182,29 +351,150 @@ void beginServer(){
   server.on("/api/connect", HTTP_POST, [](AsyncWebServerRequest *request){
     SettingsSTA currentSTASettings = loadSTASettings();
 
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.begin(currentSTASettings.ssid, currentSTASettings.password);
+    if (currentSTASettings.ssid[0] != '\0' && beginConnectionAttempt(currentSTASettings.ssid, currentSTASettings.password, false, false)) {
+      request->send(200, F("application/json"), F("{\"status\":\"connecting\"}"));
+      return;
+    }
 
-    connectionStartTime = millis();
-    isConnecting = true;
+    SavedWiFiNetwork lastNetwork;
+    if (getLastSavedWiFiNetwork(&lastNetwork) && beginConnectionAttempt(lastNetwork.ssid, lastNetwork.password, true, false)) {
+      request->send(200, F("application/json"), F("{\"status\":\"connecting\"}"));
+      return;
+    }
 
-    request->send(200);
+    request->send(400, F("application/json"), F("{\"error\":\"No saved network\"}"));
   });
 
-  server.on("/api/connection_status", HTTP_GET, [](AsyncWebServerRequest *request){
-    if (WiFi.status() == WL_CONNECTED) {
-      isConnecting = false;
-      connectionStartTime = millis();
-      IPAddress ip = WiFi.localIP();
-      char buffer[64];
-      snprintf(buffer, sizeof(buffer), "{\"connected\":1,\"ip\":\"%s\"}", WiFi.localIP().toString().c_str());
-      request->send(200, F("application/json"), buffer);
-    } else if (isConnecting && millis() - connectionStartTime < 20000) {
-      request->send(200, F("application/json"), F("{\"connected\":0}"));
+  server.on("/api/connect_network", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      //Serial.println("Received /api/connect_network request");
+
+      if (index == 0) {
+        String* body = new String();
+        body->reserve(total);
+        request->_tempObject = body;
+      }
+
+      String* jsonBuffer = reinterpret_cast<String*>(request->_tempObject);
+      if (jsonBuffer == nullptr) {
+        request->send(500, F("application/json"), F("{\"error\":\"Body alloc failed\"}"));
+        return;
+      }
+
+      for (size_t i = 0; i < len; i++) {
+        (*jsonBuffer) += (char)data[i];
+      }
+
+      if (index + len != total) {
+        return;
+      }
+
+      StaticJsonDocument<256> doc;
+      DeserializationError error = deserializeJson(doc, *jsonBuffer);
+
+      delete jsonBuffer;
+      request->_tempObject = nullptr;
+
+      if (error) {
+        request->send(400, F("application/json"), F("{\"error\":\"Invalid JSON\"}"));
+        return;
+      }
+
+      const char* ssid = doc["ssid"] | "";
+      const char* providedPassword = doc["password"] | "";
+      bool passwordProvided = doc["passwordProvided"] | false;
+
+      ///Serial.print("Requested connection to SSID: ");
+      //Serial.println(ssid);
+
+      if (ssid == nullptr || ssid[0] == '\0') {
+        request->send(400, F("application/json"), F("{\"error\":\"Missing ssid\"}"));
+        return;
+      }
+
+      SavedWiFiNetwork savedNetwork;
+      bool hasSavedNetwork = findSavedWiFiNetwork(ssid, &savedNetwork);
+      bool hasProvidedPassword = passwordProvided;
+
+      const char* passwordToUse = "";
+      bool saveProvidedCredentials = false;
+      bool usedSavedPassword = false;
+
+      /*
+      Serial.print("Has saved network: ");
+      Serial.println(hasSavedNetwork);
+      Serial.print("Has provided password: ");
+      Serial.println(hasProvidedPassword);
+      */
+
+      if (hasProvidedPassword) {
+        passwordToUse = providedPassword;
+        saveProvidedCredentials = true;
+      } else if (hasSavedNetwork) {
+        passwordToUse = savedNetwork.password;
+        usedSavedPassword = true;
+      } else {
+        bool foundInScan = false;
+        bool networkIsOpen = isScannedNetworkOpen(ssid, &foundInScan);
+
+        if (foundInScan && networkIsOpen) {
+          passwordToUse = "";
+          saveProvidedCredentials = true;
+        } else {
+          request->send(400, F("application/json"), F("{\"error\":\"password_required\",\"requiresPassword\":true}"));
+          return;
+        }
+      }
+      
+      /*
+      Serial.print("Password to use: ");
+      Serial.println(passwordToUse);
+      Serial.print("Save provided credentials: ");
+      Serial.println(saveProvidedCredentials);
+      Serial.print("Used saved password: ");
+      Serial.println(usedSavedPassword);
+      Serial.print("Ssid:"); Serial.println(ssid);
+      */
+
+      if (isConnecting || hasQueuedConnectRequest) {
+        request->send(409, F("application/json"), F("{\"error\":\"Connection already in progress\"}"));
+        return;
+      }
+
+      strlcpy(pendingConnectSsid, ssid, sizeof(pendingConnectSsid));
+      strlcpy(pendingConnectPassword, passwordToUse, sizeof(pendingConnectPassword));
+      pendingConnectUsedSavedPassword = usedSavedPassword;
+      pendingConnectSaveProvidedCredentials = saveProvidedCredentials;
+      hasQueuedConnectRequest = true;
+
+      AsyncResponseStream *response = request->beginResponseStream("application/json");
+      response->print(F("{\"status\":\"connecting\",\"ssid\":\""));
+      response->print(escapeJson(ssid));
+      response->print(F("\"}"));
+      request->send(response);
+      //Serial.println("Connection attempt queued");
+  });
+
+  server.on("/api/networks", HTTP_GET, [](AsyncWebServerRequest *request){
+    bool forceScan = request->hasParam("force") && request->getParam("force")->value() == "1";
+
+    if (forceScan) {
+      startNetworksScan(true);
     } else {
-      isConnecting = false;
-      request->send(200, F("application/json"), F("{\"connected\":2}"));
+      if (!isNetworksScanInProgress && (lastNetworksScanAt == 0 || millis() - lastNetworksScanAt > 15000)) {
+        startNetworksScan(false);
+      }
     }
+
+    updateNetworksScanCache();
+
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    response->print(F("{\"scanning\":"));
+    response->print(isNetworksScanInProgress ? F("true") : F("false"));
+    response->print(F(",\"networks\":"));
+    response->print(cachedNetworksJson);
+    response->print('}');
+    request->send(response);
   });
 
   server.on("/api/setGradient", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, 
@@ -404,23 +694,77 @@ void beginServer(){
   server.begin();
 }
 
-bool connectToWiFi(SettingsSTA s) {
+bool connectToWiFi(const char* ssid, const char* password) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return false;
+  }
 
-  WiFi.begin(s.ssid, s.password);
-  uint8_t counter = 1;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password == nullptr ? "" : password);
   unsigned long startAttemptTime = millis();
 
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 15000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 3750) {
 
-    for (uint16_t i = 0; i < counter; i++) {
+    for (uint16_t i = 0; i < ConectionCounter; i++) {
       strip.SetPixelColor(i, RgbColor(0,255,255));
     }
     strip.Show();
-    counter++;
+    ConectionCounter++;
     delay(500);
-    Serial.print(".");
   }
   return WiFi.status() == WL_CONNECTED;
+}
+
+bool tryConnectSavedNetworkWithRetries(const SavedWiFiNetwork& network, uint8_t attempts) {
+  if (!network.used || network.ssid[0] == '\0') {
+    return false;
+  }
+
+  for (uint8_t attempt = 0; attempt < attempts; attempt++) {
+    if (connectToWiFi(network.ssid, network.password)) {
+      setLastSavedWiFiNetwork(network.ssid);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool connectUsingSavedNetworks() {
+  SavedWiFiStorage storage = loadSavedWiFiStorage();
+
+  if (storage.lastIndex >= 0 && storage.lastIndex < MAX_SAVED_WIFI_NETWORKS && storage.networks[storage.lastIndex].used) {
+    if (tryConnectSavedNetworkWithRetries(storage.networks[storage.lastIndex], 3)) {
+      return true;
+    }
+  }
+
+  WiFi.mode(WIFI_STA);
+  int foundNetworks = WiFi.scanNetworks(false, true);
+  if (foundNetworks <= 0) {
+    WiFi.scanDelete();
+    return false;
+  }
+
+  for (int i = 0; i < foundNetworks; i++) {
+    String scannedSsid = WiFi.SSID(i);
+
+    for (int j = 0; j < MAX_SAVED_WIFI_NETWORKS; j++) {
+      if (!storage.networks[j].used) {
+        continue;
+      }
+
+      if (strcmp(storage.networks[j].ssid, scannedSsid.c_str()) == 0) {
+        if (tryConnectSavedNetworkWithRetries(storage.networks[j], 2)) {
+          WiFi.scanDelete();
+          return true;
+        }
+      }
+    }
+  }
+
+  WiFi.scanDelete();
+  return false;
 }
 //======================================Server Init======================================
 
@@ -429,7 +773,7 @@ void setup() {
   stops[0] = GradientStop{ 0.0, "#00b7ff" }; 
   stops[1] = GradientStop{ 0.4, "#00ff33" };
   stops[2] = GradientStop{ 1.0, "#ffe500" };
-  pinMode(LED_PIN, OUTPUT);
+  //pinMode(LED_PIN, OUTPUT);
 
   strip.Begin();
   for (int i = 0; i < NUM_LEDS; i++) {
@@ -443,10 +787,15 @@ void setup() {
     delay(30);
   }
   //Serial.begin(74880);
+  //Serial.println("Debug mode");
+  WiFi.persistent(false);
+  WiFi.setAutoConnect(false);
+  WiFi.setAutoReconnect(false);
+
   SettingsSTA s = loadSTASettings();
 
   if (s.useStaMode) {
-    if (!connectToWiFi(s)) {
+    if (!connectUsingSavedNetworks()) {
       startAP();
       for(uint8_t i = 0; i < 2; i++){
         for (int j = 0; j < NUM_LEDS; j++) {
@@ -474,6 +823,75 @@ void setup() {
 }
 
 void loop() {
+  updateNetworksScanCache();
+
+  if (hasQueuedConnectRequest && !isConnecting) {
+    bool started = beginConnectionAttempt(
+      pendingConnectSsid,
+      pendingConnectPassword,
+      pendingConnectUsedSavedPassword,
+      pendingConnectSaveProvidedCredentials
+    );
+
+    if (!started) {
+      //Serial.println("Failed to queue-start Wi-Fi connect attempt");
+      pendingConnectUsedSavedPassword = false;
+      pendingConnectSaveProvidedCredentials = false;
+      pendingConnectSsid[0] = '\0';
+      pendingConnectPassword[0] = '\0';
+    }
+
+    hasQueuedConnectRequest = false;
+  }
+
+  if(isConnecting){
+    
+    //Serial.println(WiFi.status());
+    if (WiFi.status() == WL_CONNECTED) {
+      
+      isConnecting = false;
+
+      if (pendingConnectSsid[0] != '\0') {
+        SettingsSTA staSettings;
+        strlcpy(staSettings.ssid, pendingConnectSsid, sizeof(staSettings.ssid));
+        strlcpy(staSettings.password, pendingConnectPassword, sizeof(staSettings.password));
+        staSettings.useStaMode = true;
+        saveSTASettings(staSettings);
+
+        if (pendingConnectSaveProvidedCredentials) {
+          upsertSavedWiFiNetwork(pendingConnectSsid, pendingConnectPassword, true);
+        }
+
+        setLastSavedWiFiNetwork(pendingConnectSsid);
+      }
+
+      hasRollbackConnectCredentials = false;
+      rollbackConnectSsid[0] = '\0';
+      rollbackConnectPassword[0] = '\0';
+      pendingConnectUsedSavedPassword = false;
+      pendingConnectSaveProvidedCredentials = false;
+      pendingConnectSsid[0] = '\0';
+      pendingConnectPassword[0] = '\0';
+    } else if (millis() - connectionStartTime > 15000){
+      //Serial.println("Failed to connect to Wi-Fi");
+
+      //Serial.println("restoring privious connection");
+      //Serial.print("SSID: ");      Serial.println(rollbackConnectSsid);
+
+      restorePreviousConnectionAfterFailure();
+
+      isConnecting = false;
+      pendingConnectUsedSavedPassword = false;
+      pendingConnectSaveProvidedCredentials = false;
+      pendingConnectSsid[0] = '\0';
+      pendingConnectPassword[0] = '\0';
+      hasRollbackConnectCredentials = false;
+      rollbackConnectSsid[0] = '\0';
+      rollbackConnectPassword[0] = '\0';
+    }
+
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     dnsServer.processNextRequest();
   } else if (!isConnected && millis() - connectionStartTime > 20000) {
@@ -482,8 +900,11 @@ void loop() {
     isConnected = true;
   }
   else{
-    MDNS.update();
+    if(!isConnecting) {
+      MDNS.update();
+    }
   }
+
 
   if(isUpdateRequested){
     isUpdateRequested = false;

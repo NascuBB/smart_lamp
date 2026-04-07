@@ -18,6 +18,8 @@
 #define LED_PIN     2
 #define NUM_LEDS    30
 #define INTERVAL    20
+#define CONNECT_ATTEMPT_TIMEOUT_MS 3500
+#define CONNECT_PROGRESS_STEP_MS 150
 
 unsigned long lastUpdate = 0;
 uint8_t brightness = 255;
@@ -26,8 +28,6 @@ uint8_t speed = 3;
 bool power = true;
 bool powerStateChanged = false;
 char colorHex[8] = "#00ff00";
-
-uint8_t ConectionCounter = 1;
 
 NeoPixelBus<NeoGrbFeature, NeoEsp8266Dma800KbpsMethod> strip(NUM_LEDS); //port 3 rx
 //NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod> strip(NUM_LEDS, LED_PIN);
@@ -694,49 +694,52 @@ void beginServer(){
   server.begin();
 }
 
-bool connectToWiFi(const char* ssid, const char* password) {
+bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex) {
   if (ssid == nullptr || ssid[0] == '\0') {
     return false;
   }
 
+  const uint16_t stepsPerAttempt = CONNECT_ATTEMPT_TIMEOUT_MS / CONNECT_PROGRESS_STEP_MS;
+  uint16_t currentStep = 0;
+
+  showConnectionProgress(0, stepsPerAttempt, segmentIndex);
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password == nullptr ? "" : password);
+
   unsigned long startAttemptTime = millis();
-
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 3750) {
-
-    for (uint16_t i = 0; i < ConectionCounter; i++) {
-      strip.SetPixelColor(i, RgbColor(0,255,255));
-    }
-    strip.Show();
-    ConectionCounter++;
-    delay(500);
-  }
-  return WiFi.status() == WL_CONNECTED;
-}
-
-bool tryConnectSavedNetworkWithRetries(const SavedWiFiNetwork& network, uint8_t attempts) {
-  if (!network.used || network.ssid[0] == '\0') {
-    return false;
-  }
-
-  for (uint8_t attempt = 0; attempt < attempts; attempt++) {
-    if (connectToWiFi(network.ssid, network.password)) {
-      setLastSavedWiFiNetwork(network.ssid);
+  while (millis() - startAttemptTime < CONNECT_ATTEMPT_TIMEOUT_MS) {
+    if (WiFi.status() == WL_CONNECTED) {
+      showConnectionProgress(stepsPerAttempt, stepsPerAttempt, segmentIndex);
       return true;
     }
+
+    if (currentStep < stepsPerAttempt) {
+      currentStep++;
+    }
+    showConnectionProgress(currentStep, stepsPerAttempt, segmentIndex);
+    delay(CONNECT_PROGRESS_STEP_MS);
   }
 
+  WiFi.disconnect(false);
+  delay(100);
+  showConnectionProgress(stepsPerAttempt, stepsPerAttempt, segmentIndex);
   return false;
 }
 
 bool connectUsingSavedNetworks() {
   SavedWiFiStorage storage = loadSavedWiFiStorage();
+  uint8_t attemptIndex = 0;
+  const uint8_t MAX_ATTEMPTS = 3;
 
-  if (storage.lastIndex >= 0 && storage.lastIndex < MAX_SAVED_WIFI_NETWORKS && storage.networks[storage.lastIndex].used) {
-    if (tryConnectSavedNetworkWithRetries(storage.networks[storage.lastIndex], 3)) {
-      return true;
+  if (attemptIndex < MAX_ATTEMPTS) {
+    if (storage.lastIndex >= 0 && storage.lastIndex < MAX_SAVED_WIFI_NETWORKS && storage.networks[storage.lastIndex].used) {
+      if (connectToWiFi(storage.networks[storage.lastIndex].ssid, storage.networks[storage.lastIndex].password, attemptIndex)) {
+        setLastSavedWiFiNetwork(storage.networks[storage.lastIndex].ssid);
+        return true;
+      }
     }
+    attemptIndex++;
   }
 
   WiFi.mode(WIFI_STA);
@@ -746,7 +749,8 @@ bool connectUsingSavedNetworks() {
     return false;
   }
 
-  for (int i = 0; i < foundNetworks; i++) {
+  uint8_t foundSavedCount = 0;
+  for (int i = 0; i < foundNetworks && attemptIndex < MAX_ATTEMPTS; i++) {
     String scannedSsid = WiFi.SSID(i);
 
     for (int j = 0; j < MAX_SAVED_WIFI_NETWORKS; j++) {
@@ -755,10 +759,14 @@ bool connectUsingSavedNetworks() {
       }
 
       if (strcmp(storage.networks[j].ssid, scannedSsid.c_str()) == 0) {
-        if (tryConnectSavedNetworkWithRetries(storage.networks[j], 2)) {
+        if (connectToWiFi(storage.networks[j].ssid, storage.networks[j].password, attemptIndex)) {
+          setLastSavedWiFiNetwork(storage.networks[j].ssid);
           WiFi.scanDelete();
           return true;
         }
+        attemptIndex++;
+        foundSavedCount++;
+        break;
       }
     }
   }
@@ -797,17 +805,18 @@ void setup() {
   if (s.useStaMode) {
     if (!connectUsingSavedNetworks()) {
       startAP();
-      for(uint8_t i = 0; i < 2; i++){
-        for (int j = 0; j < NUM_LEDS; j++) {
+        for (uint8_t i = 0; i < 2; i++) {
+        for (uint16_t j = 0; j < NUM_LEDS; j++) {
           strip.SetPixelColor(j, RgbColor(255, 0, 0));
         }
         strip.Show();
-        delay(250);
-        for (int i = 0; i < NUM_LEDS; i++) {
-          strip.SetPixelColor(i, RgbColor(0, 0, 0));
+        delay(300);
+
+        for (uint16_t j = 0; j < NUM_LEDS; j++) {
+          strip.SetPixelColor(j, RgbColor(0, 0, 0));
         }
         strip.Show();
-        delay(250);
+        delay(300);
       }
     } else {
       if (MDNS.begin("lamp")) {
@@ -1140,6 +1149,35 @@ void turnOff() {
     strip.Show();
     delay(30);
   }
+}
+
+
+void showConnectionProgress(uint16_t currentStep, uint16_t totalSteps, uint8_t segmentIndex) {
+  if (totalSteps == 0) {
+    totalSteps = 1;
+  }
+
+  uint16_t clampedStep = currentStep;
+  if (clampedStep > totalSteps) {
+    clampedStep = totalSteps;
+  }
+
+  uint16_t ledsPerSegment = NUM_LEDS / 3;
+  uint16_t segmentStart = segmentIndex * ledsPerSegment;
+  uint16_t segmentEnd = (segmentIndex == 2) ? NUM_LEDS : segmentStart + ledsPerSegment;
+
+  uint16_t ledsToLight = segmentStart + (uint32_t)clampedStep * (segmentEnd - segmentStart) / totalSteps;
+  if (ledsToLight > segmentEnd) {
+    ledsToLight = segmentEnd;
+  }
+
+  for (uint16_t i = 0; i < NUM_LEDS; i++) {
+    if (i < ledsToLight) {
+      strip.SetPixelColor(i, RgbColor(0, 180, 255));
+    }
+  }
+
+  strip.Show();
 }
 
 RgbColor FromHex(const char* hex) {

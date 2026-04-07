@@ -18,7 +18,7 @@
 #define LED_PIN     2
 #define NUM_LEDS    30
 #define INTERVAL    20
-#define CONNECT_ATTEMPT_TIMEOUT_MS 3500
+#define CONNECT_ATTEMPT_TIMEOUT_MS 5000
 #define CONNECT_PROGRESS_STEP_MS 150
 
 unsigned long lastUpdate = 0;
@@ -76,6 +76,7 @@ bool isUpdateRequested = false;
 String cachedNetworksJson = "[]";
 unsigned long lastNetworksScanAt = 0;
 bool isNetworksScanInProgress = false;
+unsigned long scanPausedUntilMs = 0;
 char pendingConnectSsid[32] = "";
 char pendingConnectPassword[32] = "";
 bool pendingConnectUsedSavedPassword = false;
@@ -88,6 +89,16 @@ bool hasQueuedConnectRequest = false;
 //======================================Server======================================
 
 void startAP();
+
+void cancelAndPauseNetworksScan(unsigned long pauseMs) {
+  WiFi.scanDelete();
+  isNetworksScanInProgress = false;
+
+  unsigned long until = millis() + pauseMs;
+  if ((long)(until - scanPausedUntilMs) > 0) {
+    scanPausedUntilMs = until;
+  }
+}
 
 String escapeJson(const String& input) {
   String output;
@@ -132,6 +143,14 @@ String buildNetworksJsonFromScanResults(const int count) {
 }
 
 void startNetworksScan(bool force) {
+  if ((long)(millis() - scanPausedUntilMs) < 0) {
+    return;
+  }
+
+  if (isConnecting || hasQueuedConnectRequest) {
+    return;
+  }
+
   if (WiFi.getMode() == WIFI_AP) {
     WiFi.mode(WIFI_AP_STA);
   }
@@ -202,6 +221,9 @@ bool beginConnectionAttempt(const char* ssid, const char* password, bool usedSav
   if (ssid == nullptr || ssid[0] == '\0') {
     return false;
   }
+
+  // Stop scan immediately so connection requests are not delayed or dropped.
+  cancelAndPauseNetworksScan(8000);
   
   const char* safePassword = (password == nullptr) ? "" : password;
 
@@ -349,6 +371,8 @@ void beginServer(){
   });
 
   server.on("/api/connect", HTTP_POST, [](AsyncWebServerRequest *request){
+    cancelAndPauseNetworksScan(15000);
+
     SettingsSTA currentSTASettings = loadSTASettings();
 
     if (currentSTASettings.ssid[0] != '\0' && beginConnectionAttempt(currentSTASettings.ssid, currentSTASettings.password, false, false)) {
@@ -368,6 +392,10 @@ void beginServer(){
   server.on("/api/connect_network", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       //Serial.println("Received /api/connect_network request");
+
+      if (index == 0) {
+        cancelAndPauseNetworksScan(15000);
+      }
 
       if (index == 0) {
         String* body = new String();
@@ -476,6 +504,15 @@ void beginServer(){
   });
 
   server.on("/api/networks", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (isConnecting || hasQueuedConnectRequest) {
+      AsyncResponseStream *busyResponse = request->beginResponseStream("application/json");
+      busyResponse->print(F("{\"scanning\":false,\"busy\":true,\"networks\":"));
+      busyResponse->print(cachedNetworksJson);
+      busyResponse->print('}');
+      request->send(busyResponse);
+      return;
+    }
+
     bool forceScan = request->hasParam("force") && request->getParam("force")->value() == "1";
 
     if (forceScan) {
@@ -705,6 +742,8 @@ bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex)
   showConnectionProgress(0, stepsPerAttempt, segmentIndex);
 
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false);
+  delay(120);
   WiFi.begin(ssid, password == nullptr ? "" : password);
 
   unsigned long startAttemptTime = millis();
@@ -802,7 +841,7 @@ void setup() {
   }
   strip.Show();
 
-  for (uint16_t i = 0; i <= NUM_LEDS; i++) {
+  for (uint16_t i = 0; i < NUM_LEDS; i++) {
     strip.SetPixelColor(i, Wheel((i * RAINBOW_SCALE + rainbowOffset) & 0xFF));
     strip.Show();
     delay(30);
@@ -1157,7 +1196,7 @@ void drawGradient(GradientStop* stops, int count) {
 }
 
 void turnOff() {
-  for (int i = NUM_LEDS; i >= 0; i--) {
+  for (int i = NUM_LEDS - 1; i >= 0; i--) {
     strip.SetPixelColor(i, RgbColor(0,0,0));
     strip.Show();
     delay(30);
@@ -1185,11 +1224,12 @@ void showConnectionProgress(uint16_t currentStep, uint16_t totalSteps, uint8_t s
   }
 
   for (uint16_t i = 0; i < NUM_LEDS; i++) {
-    if (i < ledsToLight) {
+    if (i < segmentStart) {
+      strip.SetPixelColor(i, RgbColor(0, 180, 255));
+    } else if (i < ledsToLight) {
       strip.SetPixelColor(i, RgbColor(0, 180, 255));
     }
   }
-
   strip.Show();
 }
 

@@ -727,6 +727,21 @@ bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex)
   return false;
 }
 
+void persistActiveStaNetwork(const char* ssid, const char* password) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return;
+  }
+
+  SettingsSTA staSettings = loadSTASettings();
+  strlcpy(staSettings.ssid, ssid, sizeof(staSettings.ssid));
+  strlcpy(staSettings.password, password == nullptr ? "" : password, sizeof(staSettings.password));
+  staSettings.useStaMode = true;
+  saveSTASettings(staSettings);
+
+  upsertSavedWiFiNetwork(staSettings.ssid, staSettings.password, true);
+  setLastSavedWiFiNetwork(staSettings.ssid);
+}
+
 bool connectUsingSavedNetworks() {
   SavedWiFiStorage storage = loadSavedWiFiStorage();
   uint8_t attemptIndex = 0;
@@ -735,7 +750,7 @@ bool connectUsingSavedNetworks() {
   if (attemptIndex < MAX_ATTEMPTS) {
     if (storage.lastIndex >= 0 && storage.lastIndex < MAX_SAVED_WIFI_NETWORKS && storage.networks[storage.lastIndex].used) {
       if (connectToWiFi(storage.networks[storage.lastIndex].ssid, storage.networks[storage.lastIndex].password, attemptIndex)) {
-        setLastSavedWiFiNetwork(storage.networks[storage.lastIndex].ssid);
+        persistActiveStaNetwork(storage.networks[storage.lastIndex].ssid, storage.networks[storage.lastIndex].password);
         return true;
       }
     }
@@ -749,7 +764,6 @@ bool connectUsingSavedNetworks() {
     return false;
   }
 
-  uint8_t foundSavedCount = 0;
   for (int i = 0; i < foundNetworks && attemptIndex < MAX_ATTEMPTS; i++) {
     String scannedSsid = WiFi.SSID(i);
 
@@ -760,12 +774,11 @@ bool connectUsingSavedNetworks() {
 
       if (strcmp(storage.networks[j].ssid, scannedSsid.c_str()) == 0) {
         if (connectToWiFi(storage.networks[j].ssid, storage.networks[j].password, attemptIndex)) {
-          setLastSavedWiFiNetwork(storage.networks[j].ssid);
+          persistActiveStaNetwork(storage.networks[j].ssid, storage.networks[j].password);
           WiFi.scanDelete();
           return true;
         }
         attemptIndex++;
-        foundSavedCount++;
         break;
       }
     }

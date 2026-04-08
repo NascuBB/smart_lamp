@@ -90,9 +90,14 @@ bool hasQueuedConnectRequest = false;
 
 void startAP();
 
-void cancelAndPauseNetworksScan(unsigned long pauseMs) {
+void stopNetworksScan() {
   WiFi.scanDelete();
   isNetworksScanInProgress = false;
+  scanPausedUntilMs = 0;
+}
+
+void cancelAndPauseNetworksScan(unsigned long pauseMs) {
+  stopNetworksScan();
 
   unsigned long until = millis() + pauseMs;
   if ((long)(until - scanPausedUntilMs) > 0) {
@@ -119,8 +124,13 @@ String escapeJson(const String& input) {
 }
 
 String buildNetworksJsonFromScanResults(const int count) {
+  String connectedSsid = "";
+  if (WiFi.status() == WL_CONNECTED) {
+    connectedSsid = WiFi.SSID();
+  }
+
   String result = "[";
-  result.reserve((count * 48) + 2);
+  result.reserve((count * 80) + 2);
 
   for (int i = 0; i < count; i++) {
     if (i > 0) {
@@ -128,6 +138,8 @@ String buildNetworksJsonFromScanResults(const int count) {
     }
 
     String ssidEscaped = escapeJson(WiFi.SSID(i));
+    bool isConnected = (connectedSsid.length() > 0 && connectedSsid == WiFi.SSID(i));
+    bool isSaved = findSavedWiFiNetwork(WiFi.SSID(i).c_str(), nullptr);
     bool secure = WiFi.encryptionType(i) != ENC_TYPE_NONE;
     result += "{\"ssid\":\"";
     result += ssidEscaped;
@@ -135,6 +147,10 @@ String buildNetworksJsonFromScanResults(const int count) {
     result += String(WiFi.RSSI(i));
     result += ",\"secure\":";
     result += secure ? "true" : "false";
+    result += ",\"saved\":";
+    result += isSaved ? "true" : "false";
+    result += ",\"connected\":";
+    result += isConnected ? "true" : "false";
     result += '}';
   }
 
@@ -321,7 +337,34 @@ void beginServer(){
     ESP.restart();
   });
 
-  server.on("/api/save_sta", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+  server.on("/api/save_sta_mode", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+      [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<128> doc;
+      DeserializationError error = deserializeJson(doc, data);
+      if (error) {
+        request->send(400, F("application/json"), F("{\"error\":\"Invalid JSON\"}"));
+        return;
+      }
+
+      if (!doc.containsKey("useStaMode")) {
+        request->send(400, F("application/json"), F("{\"error\":\"Missing useStaMode\"}"));
+        return;
+      }
+
+      SettingsSTA settings = loadSTASettings();
+      settings.useStaMode = doc["useStaMode"];
+
+      saveSTASettings(settings);
+
+      if (!settings.useStaMode) {
+        cachedNetworksJson = "[]";
+        stopNetworksScan();
+      }
+
+      request->send(200, F("application/json"), F("{\"status\":\"saved\"}"));
+  });
+
+  server.on("/api/save_sta_credentials", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
       [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       DeserializationError error = deserializeJson(doc, data);
@@ -330,10 +373,9 @@ void beginServer(){
         return;
       }
 
-      SettingsSTA settings;
+      SettingsSTA settings = loadSTASettings();
       strlcpy(settings.ssid, doc["ssid"] | "", sizeof(settings.ssid));
       strlcpy(settings.password, doc["password"] | "", sizeof(settings.password));
-      settings.useStaMode = doc["useStaMode"];
 
       saveSTASettings(settings);
       if (settings.ssid[0] != '\0') {
@@ -504,6 +546,17 @@ void beginServer(){
   });
 
   server.on("/api/networks", HTTP_GET, [](AsyncWebServerRequest *request){
+    SettingsSTA staSettings = loadSTASettings();
+    if (!staSettings.useStaMode) {
+      cachedNetworksJson = "[]";
+      stopNetworksScan();
+
+      AsyncResponseStream *disabledResponse = request->beginResponseStream("application/json");
+      disabledResponse->print(F("{\"scanning\":false,\"disabled\":true,\"networks\":[]}"));
+      request->send(disabledResponse);
+      return;
+    }
+
     if (isConnecting || hasQueuedConnectRequest) {
       AsyncResponseStream *busyResponse = request->beginResponseStream("application/json");
       busyResponse->print(F("{\"scanning\":false,\"busy\":true,\"networks\":"));

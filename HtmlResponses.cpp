@@ -1012,23 +1012,97 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
   <h1>Настройки</h1>
 
   <style>
-    .network-actions {
+    .network-header-row {
       display: flex;
+      justify-content: space-between;
       align-items: center;
       gap: 0.5rem;
       margin: 0.5rem 0 0 5px;
-      flex-wrap: wrap;
+    }
+
+    .network-header-row label {
+      font-size: 1rem;
+      color: var(--text);
     }
 
     #sta-network-list {
       width: 100%;
       min-height: 120px;
-      padding: 0.3rem;
+      max-height: 320px;
+      overflow-y: auto;
+      margin-top: 0.6rem;
+      border: 1px solid #2a365b;
+      border-radius: 8px;
+      background: #121b35;
+      padding: 0.35rem;
+    }
+
+    .network-item {
+      width: 100%;
+      text-align: left;
+      border: 1px solid #2f4576;
+      background: #1a2748;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.7rem;
+      margin-bottom: 0.4rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .network-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .network-item:hover {
+      border-color: var(--primary);
+      background: #243766;
+    }
+
+    .network-item.selected {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    .network-item-title {
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      align-items: baseline;
+      margin-bottom: 0.3rem;
+    }
+
+    .network-item-meta {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .network-badge {
+      border-radius: 6px;
+      padding: 0.1rem 0.4rem;
+      background: #2a3b67;
+      color: #d7e5ff;
+      font-size: 0.78rem;
+    }
+
+    .network-badge.connected {
+      background: #1e6b4d;
+      color: #d9ffef;
+    }
+
+    .network-badge.saved {
+      background: #4b5a1c;
+      color: #f2ffd4;
     }
 
     .network-status {
       color: var(--text-dim);
       min-height: 1.2rem;
+      margin: 0.45rem 0 0 5px;
     }
 
     .network-hint {
@@ -1036,32 +1110,50 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
       margin: 0.4rem 0 0 5px;
       font-size: 0.9rem;
     }
+
+    .manual-form {
+      margin-top: 0.7rem;
+      border-top: 1px dashed #3b4a72;
+      padding-top: 0.7rem;
+      display: none;
+    }
+
+    .manual-form.open {
+      display: block;
+    }
+
+    .toggle-manual {
+      margin-top: 0.7rem;
+    }
   </style>
 
   <div class="card">
     <h3 class="secondary-title">Настройка сети (STA mode)</h3>
-    <div class="textfield-container">
-      <label for="ssid-sta">Название сети</label>
-      <input type="text" class="textfield" id="ssid-sta">
-    </div>
-    <div class="textfield-container">
-      <label for="pass-sta">Пароль сети</label>
-      <input type="text" class="textfield" id="pass-sta">
-    </div>
-    <div class="textfield-container" style="width: 100%;">
+    <div class="network-header-row">
       <label for="sta-network-list">Доступные сети в радиусе</label>
-      <select class="textfield" id="sta-network-list" size="5"></select>
+      <button class="btn btn-primary" style="padding: 0.25rem;" id="refresh-networks" type="button">Обновить</button>
     </div>
-    <div class="network-actions">
-      <button class="btn btn-primary" id="refresh-networks" type="button">Обновить сети</button>
-      <span class="network-status" id="scan-status">Сети еще не загружены</span>
-    </div>
+    <div id="sta-network-list"></div>
+    <span class="network-status" id="scan-status">Сети еще не загружены</span>
     <span class="network-hint">Нажмите на сеть для подключения. Если сеть новая, будет запрошен пароль.</span>
+
     <div class="checkbox-container">
       <input type="checkbox" class="checkbox" id="sta-mode">
       <label for="sta-mode">Подключаться к существующей сети (режим STA)</label>
     </div>
-    <button class="btn btn-primary" id="send-sta">Сохранить</button>
+
+    <button class="btn btn-primary toggle-manual" id="toggle-manual-sta" type="button">Показать ручной ввод</button>
+    <div class="manual-form" id="manual-sta-form">
+      <div class="textfield-container">
+        <label for="ssid-sta">Название сети</label>
+        <input type="text" class="textfield" id="ssid-sta">
+      </div>
+      <div class="textfield-container">
+        <label for="pass-sta">Пароль сети</label>
+        <input type="text" class="textfield" id="pass-sta">
+      </div>
+      <button class="btn btn-primary" style="margin-top: 0.7rem; width: 100%;" id="send-sta">Сохранить</button>
+    </div>
   </div>
 
   <div class="card">
@@ -1084,7 +1176,6 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
 
   <div class="card">
     <h3 class="secondary-title">Дополнительно</h3>
-    <button class="btn btn-primary" onclick="connectToWifi()">Подключиться к сети</button>
     <button class="btn btn-primary" onclick="reboot()">Перезапустить</button>
     <button class="btn btn-primary" onclick="update()">Обновить прошивку</button>
   </div>
@@ -1107,37 +1198,93 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
   const ssidApInput = document.getElementById('ssid-ap');
   const passApInput = document.getElementById('pass-ap');
   const passReqApCheckbox = document.getElementById('pass-req-ap');
-  const staNetworksSelect = document.getElementById('sta-network-list');
+  const staNetworksList = document.getElementById('sta-network-list');
   const refreshNetworksButton = document.getElementById('refresh-networks');
   const scanStatus = document.getElementById('scan-status');
+  const toggleManualStaButton = document.getElementById('toggle-manual-sta');
+  const manualStaForm = document.getElementById('manual-sta-form');
 
   let networksTimerId = null;
   let connectPollTimerId = null;
+  let selectedNetworkSsid = '';
+
+  function signalLabelFromRssi(rssi) {
+    if (rssi >= -60) return 'сильный';
+    if (rssi >= -75) return 'средний';
+    return 'слабый';
+  }
 
   function renderNetworks(networks) {
-    staNetworksSelect.innerHTML = '';
+    staNetworksList.innerHTML = '';
 
     if (!Array.isArray(networks) || networks.length === 0) {
-      const noNetworksOption = document.createElement('option');
-      noNetworksOption.textContent = 'Сети не найдены';
-      noNetworksOption.disabled = true;
-      staNetworksSelect.appendChild(noNetworksOption);
+      const empty = document.createElement('div');
+      empty.className = 'network-item';
+      empty.textContent = 'Сети не найдены';
+      staNetworksList.appendChild(empty);
       return;
     }
 
     networks.sort((a, b) => b.rssi - a.rssi);
 
     networks.forEach((network) => {
-      const option = document.createElement('option');
       const ssid = network.ssid || '(скрытая сеть)';
+      const signalLabel = signalLabelFromRssi(network.rssi || -100);
       const securityLabel = network.secure ? 'защищена' : 'открытая';
-      option.value = network.ssid || '';
-      option.textContent = `${ssid} (${network.rssi} dBm, ${securityLabel})`;
-      staNetworksSelect.appendChild(option);
+
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'network-item';
+      if (network.ssid && network.ssid === selectedNetworkSsid) {
+        item.classList.add('selected');
+      }
+      item.dataset.ssid = network.ssid || '';
+
+      const badges = [];
+      if (network.connected) {
+        badges.push('<span class="network-badge connected">подключено</span>');
+      }
+      if (network.saved) {
+        badges.push('<span class="network-badge saved">сохранена</span>');
+      }
+      badges.push(`<span class="network-badge">${securityLabel}</span>`);
+
+      item.innerHTML = `
+        <div class="network-item-title">
+          <span>${ssid}</span>
+          <span>${network.rssi} dBm</span>
+        </div>
+        <div class="network-item-meta">
+          <span>Сигнал: ${signalLabel}</span>
+          ${badges.join('')}
+        </div>
+      `;
+
+      item.addEventListener('click', () => {
+        if (!network.ssid) {
+          return;
+        }
+        selectedNetworkSsid = network.ssid;
+        ssidStaInput.value = network.ssid;
+        renderNetworks(networks);
+
+        connectToNetwork(network.ssid).catch((error) => {
+          scanStatus.textContent = 'Ошибка запуска подключения';
+          console.error('Ошибка подключения к выбранной сети:', error);
+        });
+      });
+
+      staNetworksList.appendChild(item);
     });
   }
 
   async function scanNetworks(force = false) {
+    if (!staModeCheckbox.checked) {
+      scanStatus.textContent = 'STA режим отключен, сканирование остановлено';
+      staNetworksList.innerHTML = '';
+      return;
+    }
+
     scanStatus.textContent = 'Сканирование...';
     refreshNetworksButton.disabled = true;
 
@@ -1149,8 +1296,22 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 
       const data = await response.json();
       const networks = Array.isArray(data.networks) ? data.networks : [];
+
+      if (data.disabled) {
+        staModeCheckbox.checked = false;
+        if (networksTimerId) {
+          clearInterval(networksTimerId);
+          networksTimerId = null;
+        }
+        staNetworksList.innerHTML = '';
+        scanStatus.textContent = 'STA режим отключен на контроллере';
+        return;
+      }
+
       renderNetworks(networks);
-      if (data.scanning) {
+      if (data.busy) {
+        scanStatus.textContent = 'Сканирование приостановлено на время подключения';
+      } else if (data.scanning) {
         scanStatus.textContent = `Найдено сетей: ${networks.length}`;
       } else {
         scanStatus.textContent = `Найдено сетей: ${networks.length}`;
@@ -1197,6 +1358,8 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
       throw new Error(data.error || `HTTP ${response.status}`);
     }
 
+    selectedNetworkSsid = ssid;
+    ssidStaInput.value = ssid;
     scanStatus.textContent = `Подключение к ${ssid}...`;
     pollConnectionStatus(ssid);
   }
@@ -1244,11 +1407,21 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     passApInput.value = settings.passwordAp;
     passReqApCheckbox.checked = settings.requiresPassAp;
 
-    scanNetworks(true);
+    if (settings.ssidSta) {
+      selectedNetworkSsid = settings.ssidSta;
+    }
+
     if (networksTimerId) {
       clearInterval(networksTimerId);
     }
-    networksTimerId = setInterval(() => scanNetworks(false), 30000);
+
+    if (staModeCheckbox.checked) {
+      scanNetworks(true);
+      networksTimerId = setInterval(() => scanNetworks(false), 30000);
+    } else {
+      scanStatus.textContent = 'STA режим отключен, сканирование остановлено';
+      staNetworksList.innerHTML = '';
+    }
   });
 
   window.addEventListener('beforeunload', () => {
@@ -1258,17 +1431,43 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
   });
 
   refreshNetworksButton.addEventListener('click', () => {
+    if (!staModeCheckbox.checked) {
+      scanStatus.textContent = 'Включите STA режим, чтобы сканировать сети';
+      return;
+    }
+
     scanNetworks(true);
   });
 
-  staNetworksSelect.addEventListener('change', () => {
-    if (staNetworksSelect.value) {
-      ssidStaInput.value = staNetworksSelect.value;
-      connectToNetwork(staNetworksSelect.value).catch((error) => {
-        scanStatus.textContent = 'Ошибка запуска подключения';
-        console.error('Ошибка подключения к выбранной сети:', error);
-      });
+  staModeCheckbox.addEventListener('change', async () => {
+    const enabled = staModeCheckbox.checked;
+
+    try {
+      await saveStaModeSetting(enabled);
+    } catch (error) {
+      staModeCheckbox.checked = !enabled;
+      scanStatus.textContent = 'Не удалось сохранить STA режим';
+      console.error('Ошибка сохранения STA режима:', error);
+      return;
     }
+
+    if (networksTimerId) {
+      clearInterval(networksTimerId);
+      networksTimerId = null;
+    }
+
+    if (enabled) {
+      scanNetworks(true);
+      networksTimerId = setInterval(() => scanNetworks(false), 30000);
+    } else {
+      scanStatus.textContent = 'STA режим отключен, сканирование остановлено';
+      staNetworksList.innerHTML = '';
+    }
+  });
+
+  toggleManualStaButton.addEventListener('click', () => {
+    const opened = manualStaForm.classList.toggle('open');
+    toggleManualStaButton.textContent = opened ? 'Скрыть ручной ввод' : 'Показать ручной ввод';
   });
 
   function reboot() {
@@ -1296,30 +1495,54 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     });
   }
 
-  document.getElementById('send-sta').addEventListener('click', () => {
+  async function saveStaModeSetting(useStaModeValue) {
+    const response = await fetch('/api/save_sta_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        useStaMode: useStaModeValue
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('save_sta_mode_failed');
+    }
+
+    settings.useStaMode = useStaModeValue;
+  }
+
+  async function saveStaCredentials(showSuccessMessage = false) {
     const ssidSta = ssidStaInput.value;
     const passSta = passStaInput.value;
-    const useStaMode = staModeCheckbox.checked;
 
-    fetch('/api/save_sta', {
+    const response = await fetch('/api/save_sta_credentials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ssid: ssidSta,
-        password: passSta,
-        useStaMode: useStaMode
+        password: passSta
       })
-    })
-    .then(response => {
-      if (response.ok) {
-        alert("STA настройки сохранены!");
-      } else {
-        alert("Ошибка сохранения STA настроек.");
-      }
-    })
-    .catch(error => {
-      console.error("Ошибка сети:", error);
     });
+
+    if (!response.ok) {
+      throw new Error('save_sta_credentials_failed');
+    }
+
+    settings.ssidSta = ssidSta;
+    settings.passwordSta = passSta;
+
+    if (showSuccessMessage) {
+      alert('STA настройки сохранены!');
+    }
+  }
+
+  document.getElementById('send-sta').addEventListener('click', async () => {
+    try {
+      await saveStaCredentials(true);
+    } catch (error) {
+      alert('Ошибка сохранения STA настроек.');
+      console.error('Ошибка сети:', error);
+    }
   });
 
   document.getElementById('send-ap').addEventListener('click', () => {
@@ -1347,12 +1570,6 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
       console.error("Ошибка сети:", error);
     });
   });
-  function connectToWifi() {
-    fetch('/api/connect', { method: 'POST' })
-      .then(() => {
-        window.location.href = '/connecting';
-      });
-  }
 </script>
 )rawliteral";
 

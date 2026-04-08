@@ -1,4 +1,5 @@
 #include "HtmlResponses.h"
+#include "StringEscapeUtils.h"
 
 const char html_template_p1[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -308,6 +309,18 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
       transition: all 0.3s ease;
     }
+    .btn-danger {
+      background-color: var(--danger);
+      border: 2px solid var(--danger);
+      :hover {
+        background-color: #d63031;
+        border-color: #d63031;
+      }
+    }
+    .btn-danger:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -440,19 +453,6 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
           background: var(--bg-light);
           padding: 10px;
           border-radius: 8px;
-      }
-
-      .btn-danger {
-          background-color: var(--danger);
-          color: white;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          cursor: pointer;
-      }
-      .btn-danger:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
       }
     </style>
 
@@ -1176,6 +1176,7 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
 
   <div class="card">
     <h3 class="secondary-title">Дополнительно</h3>
+    <a class="btn btn-primary" href="/saved_networks" style="text-decoration:none;">Сохраненные сети</a>
     <button class="btn btn-primary" onclick="reboot()">Перезапустить</button>
     <button class="btn btn-primary" onclick="update()">Обновить прошивку</button>
   </div>
@@ -1573,6 +1574,247 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 </script>
 )rawliteral";
 
+const char html_saved_networks[] PROGMEM = R"rawliteral(
+<div class="page active" id="saved-networks">
+  <h1>Сохраненные сети</h1>
+
+  <style>
+    .saved-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .saved-item {
+      border: 1px solid #2f4576;
+      background: #1a2748;
+      border-radius: 8px;
+      padding: 0.7rem;
+    }
+
+    .saved-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .saved-item-title {
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .saved-badge {
+      background: #2a3b67;
+      color: #d7e5ff;
+      border-radius: 6px;
+      padding: 0.12rem 0.45rem;
+      font-size: 0.78rem;
+    }
+
+    .saved-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .saved-status {
+      color: var(--text-dim);
+      margin-top: 0.6rem;
+      min-height: 1.2rem;
+    }
+  </style>
+
+  <div class="card">
+    <h3 class="secondary-title">Список сохраненных сетей</h3>
+    <div id="saved-list" class="saved-list"></div>
+    <div id="saved-status" class="saved-status">Загрузка...</div>
+  </div>
+</div>
+
+<script>
+  const savedList = document.getElementById('saved-list');
+  const savedStatus = document.getElementById('saved-status');
+  const savedNetworks = Array.isArray(window.initialSavedNetworks?.networks)
+    ? window.initialSavedNetworks.networks.map((network) => ({
+        ssid: network.ssid || '',
+        hasPassword: !!network.hasPassword,
+        isLast: !!network.isLast
+      }))
+    : [];
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderSavedNetworks(networks) {
+    savedList.innerHTML = '';
+
+    if (!Array.isArray(networks) || networks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'saved-item';
+      empty.textContent = 'Нет сохраненных сетей';
+      savedList.appendChild(empty);
+      return;
+    }
+
+    networks.forEach((network) => {
+      const item = document.createElement('div');
+      item.className = 'saved-item';
+
+      const ssid = network.ssid || '(пусто)';
+      const hasPassword = !!network.hasPassword;
+      const isLast = !!network.isLast;
+
+      item.innerHTML = `
+        <div class="saved-item-header">
+          <div class="saved-item-title">${escapeHtml(ssid)}</div>
+          <div>
+            ${isLast ? '<span class="saved-badge">последняя</span>' : ''}
+            <span class="saved-badge">${hasPassword ? 'пароль задан' : 'без пароля'}</span>
+          </div>
+        </div>
+        <div class="saved-actions">
+          <button class="btn btn-primary" data-action="edit" data-ssid="${escapeHtml(ssid)}" type="button">Изменить</button>
+          <button class="btn btn-danger" data-action="delete" data-ssid="${escapeHtml(ssid)}" type="button">Удалить</button>
+        </div>
+      `;
+
+      savedList.appendChild(item);
+    });
+  }
+
+  function renderInitialSavedNetworks() {
+    renderSavedNetworks(savedNetworks);
+    savedStatus.textContent = `Сохранено сетей: ${savedNetworks.length}`;
+  }
+
+  function updateLocalStateAfterUpdate(oldSsid, newSsid, passwordProvided, newPassword) {
+    const oldIndex = savedNetworks.findIndex((network) => network.ssid === oldSsid);
+    const targetIndex = savedNetworks.findIndex((network) => network.ssid === newSsid);
+
+    if (oldIndex < 0) {
+      return;
+    }
+
+    const oldNetwork = savedNetworks[oldIndex];
+    const nextHasPassword = passwordProvided ? newPassword.length > 0 : oldNetwork.hasPassword;
+
+    if (targetIndex >= 0 && targetIndex != oldIndex) {
+      const targetNetwork = savedNetworks[targetIndex];
+      targetNetwork.hasPassword = passwordProvided ? nextHasPassword : (targetNetwork.hasPassword || oldNetwork.hasPassword);
+      targetNetwork.isLast = targetNetwork.isLast || oldNetwork.isLast;
+      savedNetworks.splice(oldIndex, 1);
+    } else {
+      oldNetwork.ssid = newSsid;
+      oldNetwork.hasPassword = nextHasPassword;
+    }
+  }
+
+  function removeLocalStateBySsid(ssid) {
+    const index = savedNetworks.findIndex((network) => network.ssid === ssid);
+    if (index < 0) {
+      return;
+    }
+
+    savedNetworks.splice(index, 1);
+  }
+
+  async function updateSavedNetwork(oldSsid) {
+    const newSsid = prompt(`Новое имя сети для ${oldSsid}`, oldSsid);
+    if (newSsid === null) {
+      return;
+    }
+
+    const trimmedSsid = newSsid.trim();
+    if (!trimmedSsid) {
+      savedStatus.textContent = 'SSID не может быть пустым';
+      return;
+    }
+
+    const newPassword = prompt('Новый пароль (оставьте пустым, чтобы не менять)');
+    if (newPassword === null) {
+      return;
+    }
+
+    const passwordProvided = newPassword.length > 0;
+    const response = await fetch('/api/saved_networks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldSsid,
+        newSsid: trimmedSsid,
+        password: newPassword,
+        passwordProvided
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    updateLocalStateAfterUpdate(oldSsid, trimmedSsid, passwordProvided, newPassword);
+    renderSavedNetworks(savedNetworks);
+    savedStatus.textContent = `Сеть обновлена. Сохранено сетей: ${savedNetworks.length}`;
+  }
+
+  async function deleteSavedNetwork(ssid) {
+    const confirmDelete = confirm(`Удалить сеть ${ssid}?`);
+    if (!confirmDelete) {
+      return;
+    }
+
+    const response = await fetch('/api/saved_networks/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    removeLocalStateBySsid(ssid);
+    renderSavedNetworks(savedNetworks);
+    savedStatus.textContent = `Сеть удалена. Сохранено сетей: ${savedNetworks.length}`;
+  }
+
+  savedList.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const action = target.getAttribute('data-action');
+    const ssid = target.getAttribute('data-ssid');
+    if (!action || !ssid) {
+      return;
+    }
+
+    try {
+      if (action === 'edit') {
+        await updateSavedNetwork(ssid);
+      } else if (action === 'delete') {
+        await deleteSavedNetwork(ssid);
+      }
+    } catch (error) {
+      savedStatus.textContent = 'Операция не выполнена';
+      console.error('Ошибка управления сохраненной сетью:', error);
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    renderInitialSavedNetworks();
+  });
+</script>
+)rawliteral";
+
 void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const GradientStop* gradientStops, const int stopsCount, const bool power) {
   auto currentPart = std::make_shared<uint8_t>(0);
   auto sentBytes = std::make_shared<size_t>(0);
@@ -1676,18 +1918,22 @@ void sendSettings(AsyncWebServerRequest *request, const SettingsSTA& sta, const 
   auto currentPart = std::make_shared<uint8_t>(0);
   auto sentBytes = std::make_shared<size_t>(0);
   auto settingsPayload = std::make_shared<String>();
+  String escapedStaSsid = escapeJsSingleQuoted(sta.ssid);
+  String escapedStaPassword = escapeJsSingleQuoted(sta.password);
+  String escapedApSsid = escapeJsSingleQuoted(ap.ssid);
+  String escapedApPassword = escapeJsSingleQuoted(ap.password);
 
-  settingsPayload->reserve(220);
+  settingsPayload->reserve(240 + escapedStaSsid.length() + escapedStaPassword.length() + escapedApSsid.length() + escapedApPassword.length());
   settingsPayload->concat("ssidSta: '");
-  settingsPayload->concat(sta.ssid);
+  settingsPayload->concat(escapedStaSsid);
   settingsPayload->concat("',passwordSta: '");
-  settingsPayload->concat(sta.password);
+  settingsPayload->concat(escapedStaPassword);
   settingsPayload->concat("',useStaMode: ");
   settingsPayload->concat(sta.useStaMode ? "true" : "false");
   settingsPayload->concat(",ssidAp: '");
-  settingsPayload->concat(ap.ssid);
+  settingsPayload->concat(escapedApSsid);
   settingsPayload->concat("',passwordAp: '");
-  settingsPayload->concat(ap.password);
+  settingsPayload->concat(escapedApPassword);
   settingsPayload->concat("',requiresPassAp: ");
   settingsPayload->concat(ap.requirePass ? "true" : "false");
   settingsPayload->concat(" };\n");
@@ -1814,6 +2060,143 @@ void sendWrap(AsyncWebServerRequest *request, const char* progmem_content) {
   response->print(FPSTR(html_template_p1));
   response->print(FPSTR(progmem_content));
   response->print(FPSTR(html_template_p2));
+
+  request->send(response);
+}
+
+void sendSavedNetworks(AsyncWebServerRequest *request, const SavedWiFiStorage& storage) {
+  auto currentPart = std::make_shared<uint8_t>(0);
+  auto sentBytes = std::make_shared<size_t>(0);
+  auto savedNetworksPayload = std::make_shared<String>();
+
+  savedNetworksPayload->reserve(96 + (MAX_SAVED_WIFI_NETWORKS * 72));
+  (*savedNetworksPayload) += "{\"lastIndex\":";
+  (*savedNetworksPayload) += String(storage.lastIndex);
+  (*savedNetworksPayload) += ",\"networks\":[";
+
+  bool first = true;
+  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+    if (!storage.networks[i].used) {
+      continue;
+    }
+
+    if (!first) {
+      (*savedNetworksPayload) += ',';
+    }
+    first = false;
+
+    (*savedNetworksPayload) += "{\"ssid\":\"";
+    (*savedNetworksPayload) += escapeJson(storage.networks[i].ssid);
+    (*savedNetworksPayload) += "\",\"hasPassword\":";
+    (*savedNetworksPayload) += (storage.networks[i].password[0] == '\0') ? "false" : "true";
+    (*savedNetworksPayload) += ",\"isLast\":";
+    (*savedNetworksPayload) += (storage.lastIndex == i) ? "true" : "false";
+    (*savedNetworksPayload) += '}';
+  }
+
+  (*savedNetworksPayload) += "]}";
+
+  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
+    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      (void)index;
+
+      size_t len = 0;
+      size_t totalLen;
+      size_t remaining;
+
+      static const char kPayloadPrefix[] = "<script>window.initialSavedNetworks = ";
+      static const char kPayloadSuffix[] = ";</script>";
+
+      while (true) {
+        switch ((*currentPart)) {
+          case 0:
+            totalLen = strlen_P(html_template_p1);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 1;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 1:
+            totalLen = strlen(kPayloadPrefix);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 2;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, kPayloadPrefix + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 2:
+            totalLen = savedNetworksPayload->length();
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 3;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, savedNetworksPayload->c_str() + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+          case 3:
+            totalLen = strlen(kPayloadSuffix);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 4;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, kPayloadSuffix + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 4:
+            totalLen = strlen_P(html_saved_networks);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 5;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_saved_networks + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 5:
+            totalLen = strlen_P(html_template_p2);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 6;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p2 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 6:
+            return 0;
+        }
+      }
+    });
 
   request->send(response);
 }

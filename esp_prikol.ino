@@ -7,6 +7,7 @@
 #include "Settings.h"
 #include "HtmlResponses.h"
 #include "SimpleOTA.h"
+#include "StringEscapeUtils.h"
 
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
@@ -18,8 +19,6 @@
 #define LED_PIN     2
 #define NUM_LEDS    30
 #define INTERVAL    20
-#define CONNECT_ATTEMPT_TIMEOUT_MS 5000
-#define CONNECT_PROGRESS_STEP_MS 150
 
 unsigned long lastUpdate = 0;
 uint8_t brightness = 255;
@@ -61,6 +60,10 @@ FirePixelState states[NUM_LEDS];
 
 
 //======================================Server======================================
+#define CONNECT_ATTEMPT_TIMEOUT_MS 5000
+#define CONNECT_PROGRESS_STEP_MS 150
+#define SCAN_REQUEST_ACTIVE_WINDOW_MS 15000
+
 const byte DNS_PORT = 53;
 DNSServer dnsServer;
 AsyncWebServer server(80);
@@ -77,6 +80,8 @@ String cachedNetworksJson = "[]";
 unsigned long lastNetworksScanAt = 0;
 bool isNetworksScanInProgress = false;
 unsigned long scanPausedUntilMs = 0;
+unsigned long scanRequestsActiveUntilMs = 0;
+
 char pendingConnectSsid[32] = "";
 char pendingConnectPassword[32] = "";
 bool pendingConnectUsedSavedPassword = false;
@@ -90,10 +95,123 @@ bool hasQueuedConnectRequest = false;
 
 void startAP();
 
+bool deleteSavedNetworkBySsid(const char* ssid) {
+  if (ssid == nullptr || ssid[0] == '\0') {
+    return false;
+  }
+
+  SavedWiFiStorage storage = loadSavedWiFiStorage();
+  int deleteIndex = -1;
+  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+    if (storage.networks[i].used && strcmp(storage.networks[i].ssid, ssid) == 0) {
+      deleteIndex = i;
+      break;
+    }
+  }
+
+  if (deleteIndex < 0) {
+    return false;
+  }
+
+  storage.networks[deleteIndex].used = false;
+  storage.networks[deleteIndex].ssid[0] = '\0';
+  storage.networks[deleteIndex].password[0] = '\0';
+
+  if (storage.lastIndex == deleteIndex) {
+    storage.lastIndex = -1;
+    for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+      if (storage.networks[i].used) {
+        storage.lastIndex = i;
+        break;
+      }
+    }
+  }
+
+  saveSavedWiFiStorage(storage);
+
+  SettingsSTA staSettings = loadSTASettings();
+  if (strcmp(staSettings.ssid, ssid) == 0) {
+    staSettings.ssid[0] = '\0';
+    staSettings.password[0] = '\0';
+    saveSTASettings(staSettings);
+  }
+
+  return true;
+}
+
+bool updateSavedNetworkBySsid(const char* oldSsid, const char* newSsid, const char* newPassword, bool passwordProvided) {
+  if (oldSsid == nullptr || oldSsid[0] == '\0' || newSsid == nullptr || newSsid[0] == '\0') {
+    return false;
+  }
+
+  SavedWiFiStorage storage = loadSavedWiFiStorage();
+  int sourceIndex = -1;
+  int targetIndex = -1;
+
+  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+    if (!storage.networks[i].used) {
+      continue;
+    }
+
+    if (strcmp(storage.networks[i].ssid, oldSsid) == 0) {
+      sourceIndex = i;
+    }
+
+    if (strcmp(storage.networks[i].ssid, newSsid) == 0) {
+      targetIndex = i;
+    }
+  }
+
+  if (sourceIndex < 0) {
+    return false;
+  }
+
+  int writeIndex = sourceIndex;
+  if (targetIndex >= 0 && targetIndex != sourceIndex) {
+    writeIndex = targetIndex;
+  }
+
+  strlcpy(storage.networks[writeIndex].ssid, newSsid, sizeof(storage.networks[writeIndex].ssid));
+  storage.networks[writeIndex].used = true;
+
+  if (passwordProvided) {
+    strlcpy(storage.networks[writeIndex].password, newPassword == nullptr ? "" : newPassword, sizeof(storage.networks[writeIndex].password));
+  } else if (writeIndex != sourceIndex) {
+    strlcpy(storage.networks[writeIndex].password, storage.networks[sourceIndex].password, sizeof(storage.networks[writeIndex].password));
+  }
+
+  if (writeIndex != sourceIndex) {
+    storage.networks[sourceIndex].used = false;
+    storage.networks[sourceIndex].ssid[0] = '\0';
+    storage.networks[sourceIndex].password[0] = '\0';
+  }
+
+  if (storage.lastIndex == sourceIndex || strcmp(oldSsid, newSsid) == 0) {
+    storage.lastIndex = writeIndex;
+  }
+
+  saveSavedWiFiStorage(storage);
+
+  SettingsSTA staSettings = loadSTASettings();
+  if (strcmp(staSettings.ssid, oldSsid) == 0) {
+    strlcpy(staSettings.ssid, newSsid, sizeof(staSettings.ssid));
+    if (passwordProvided) {
+      strlcpy(staSettings.password, newPassword == nullptr ? "" : newPassword, sizeof(staSettings.password));
+    }
+    saveSTASettings(staSettings);
+  }
+
+  return true;
+}
+
 void stopNetworksScan() {
   WiFi.scanDelete();
   isNetworksScanInProgress = false;
   scanPausedUntilMs = 0;
+}
+
+bool isScanRequestWindowActive() {
+  return (long)(scanRequestsActiveUntilMs - millis()) > 0;
 }
 
 void cancelAndPauseNetworksScan(unsigned long pauseMs) {
@@ -103,24 +221,6 @@ void cancelAndPauseNetworksScan(unsigned long pauseMs) {
   if ((long)(until - scanPausedUntilMs) > 0) {
     scanPausedUntilMs = until;
   }
-}
-
-String escapeJson(const String& input) {
-  String output;
-  output.reserve(input.length() + 8);
-
-  for (size_t i = 0; i < input.length(); i++) {
-    char c = input[i];
-    if (c == '\\') {
-      output += "\\\\";
-    } else if (c == '"') {
-      output += "\\\"";
-    } else {
-      output += c;
-    }
-  }
-
-  return output;
 }
 
 String buildNetworksJsonFromScanResults(const int count) {
@@ -323,16 +423,20 @@ void beginServer(){
     sendSettings(request, sSta, sAp);
   });
 
+  server.on("/saved_networks", HTTP_GET, [](AsyncWebServerRequest *request) {
+    sendSavedNetworks(request, loadSavedWiFiStorage());
+  });
+
   server.on("/connecting", HTTP_GET, [](AsyncWebServerRequest *request){
     sendWrap(request, html_connecting);
   });
 
   server.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest *request){
-    request->send(200, F("application/json"), F("{\"message\":\"Rebooting\"}"));
     if( mode == 4){
       animations.StopAll();
     }
     turnOff();
+    request->send(200, F("application/json"), F("{\"message\":\"Rebooting\"}"));
     //delay(1500);
     ESP.restart();
   });
@@ -546,9 +650,12 @@ void beginServer(){
   });
 
   server.on("/api/networks", HTTP_GET, [](AsyncWebServerRequest *request){
+    scanRequestsActiveUntilMs = millis() + SCAN_REQUEST_ACTIVE_WINDOW_MS;
+
     SettingsSTA staSettings = loadSTASettings();
     if (!staSettings.useStaMode) {
       cachedNetworksJson = "[]";
+      scanRequestsActiveUntilMs = 0;
       stopNetworksScan();
 
       AsyncResponseStream *disabledResponse = request->beginResponseStream("application/json");
@@ -587,6 +694,109 @@ void beginServer(){
     request->send(response);
   });
 
+  server.on("/api/saved_networks/update", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index == 0) {
+        String* body = new String();
+        body->reserve(total);
+        request->_tempObject = body;
+      }
+
+      String* jsonBuffer = reinterpret_cast<String*>(request->_tempObject);
+      if (jsonBuffer == nullptr) {
+        request->send(500, F("application/json"), F("{\"error\":\"Body alloc failed\"}"));
+        return;
+      }
+
+      for (size_t i = 0; i < len; i++) {
+        (*jsonBuffer) += (char)data[i];
+      }
+
+      if (index + len != total) {
+        return;
+      }
+
+      StaticJsonDocument<256> doc;
+      DeserializationError error = deserializeJson(doc, *jsonBuffer);
+
+      delete jsonBuffer;
+      request->_tempObject = nullptr;
+
+      if (error) {
+          char response[64]; 
+          String escapedError = escapeJson(error.c_str());
+          snprintf(response, sizeof(response), "{\"error\":\"%s\"}", escapedError.c_str());
+          request->send(400, "application/json", response);
+        return;
+      }
+
+      const char* oldSsid = doc["oldSsid"] | "";
+      const char* newSsid = doc["newSsid"] | "";
+      const char* password = doc["password"] | "";
+      bool passwordProvided = doc["passwordProvided"] | false;
+
+      if (oldSsid[0] == '\0' || newSsid[0] == '\0') {
+        request->send(400, F("application/json"), F("{\"error\":\"Missing SSID\"}"));
+        return;
+      }
+
+      if (!updateSavedNetworkBySsid(oldSsid, newSsid, password, passwordProvided)) {
+        request->send(400, F("application/json"), F("{\"error\":\"Update failed\"}"));
+        return;
+      }
+
+      request->send(200, F("application/json"), F("{\"status\":\"updated\"}"));
+    }
+  );
+
+  server.on("/api/saved_networks/delete", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index == 0) {
+        String* body = new String();
+        body->reserve(total);
+        request->_tempObject = body;
+      }
+
+      String* jsonBuffer = reinterpret_cast<String*>(request->_tempObject);
+      if (jsonBuffer == nullptr) {
+        request->send(500, F("application/json"), F("{\"error\":\"Body alloc failed\"}"));
+        return;
+      }
+
+      for (size_t i = 0; i < len; i++) {
+        (*jsonBuffer) += (char)data[i];
+      }
+
+      if (index + len != total) {
+        return;
+      }
+
+      StaticJsonDocument<128> doc;
+      DeserializationError error = deserializeJson(doc, *jsonBuffer);
+
+      delete jsonBuffer;
+      request->_tempObject = nullptr;
+
+      if (error) {
+        request->send(400, F("application/json"), F("{\"error\":\"Invalid JSON\"}"));
+        return;
+      }
+
+      const char* ssid = doc["ssid"] | "";
+      if (ssid[0] == '\0') {
+        request->send(400, F("application/json"), F("{\"error\":\"Missing SSID\"}"));
+        return;
+      }
+
+      if (!deleteSavedNetworkBySsid(ssid)) {
+        request->send(404, F("application/json"), F("{\"error\":\"Network not found\"}"));
+        return;
+      }
+
+      request->send(200, F("application/json"), F("{\"status\":\"deleted\"}"));
+    }
+  );
+
   server.on("/api/setGradient", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, 
   [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
 
@@ -612,7 +822,8 @@ void beginServer(){
 
     if (error) {
       char response[64]; 
-      snprintf(response, sizeof(response), "{\"error\":\"%s\"}", error.c_str());
+      String escapedError = escapeJson(error.c_str());
+      snprintf(response, sizeof(response), "{\"error\":\"%s\"}", escapedError.c_str());
       request->send(400, "application/json", response);
       return;
     }
@@ -937,7 +1148,11 @@ void setup() {
 }
 
 void loop() {
-  updateNetworksScanCache();
+  if (isScanRequestWindowActive()) {
+    updateNetworksScanCache();
+  } else if (isNetworksScanInProgress) {
+    stopNetworksScan();
+  }
 
   if (hasQueuedConnectRequest && !isConnecting) {
     bool started = beginConnectionAttempt(

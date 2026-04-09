@@ -1,4 +1,5 @@
 #include "HtmlResponses.h"
+#include "StringEscapeUtils.h"
 
 const char html_template_p1[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -308,6 +309,18 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
       transition: all 0.3s ease;
     }
+    .btn-danger {
+      background-color: var(--danger);
+      border: 2px solid var(--danger);
+      :hover {
+        background-color: #d63031;
+        border-color: #d63031;
+      }
+    }
+    .btn-danger:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -348,7 +361,7 @@ const char html_connecting[] PROGMEM = R"rawliteral(
         } else if(data.connected == 2) {
           document.getElementById('msg').innerHTML = 'Ошибка подключения, поменяйте данные для подключения к сети и повторите попытку';
         } else {
-          setTimeout(checkConnection, 1000);
+          setTimeout(checkConnection, 15000);
         }
       });
   }
@@ -440,19 +453,6 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
           background: var(--bg-light);
           padding: 10px;
           border-radius: 8px;
-      }
-
-      .btn-danger {
-          background-color: var(--danger);
-          color: white;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          cursor: pointer;
-      }
-      .btn-danger:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
       }
     </style>
 
@@ -1011,21 +1011,149 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
 <div class="page active" id="settings">
   <h1>Настройки</h1>
 
+  <style>
+    .network-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0 0 5px;
+    }
+
+    .network-header-row label {
+      font-size: 1rem;
+      color: var(--text);
+    }
+
+    #sta-network-list {
+      width: 100%;
+      min-height: 120px;
+      max-height: 320px;
+      overflow-y: auto;
+      margin-top: 0.6rem;
+      border: 1px solid #2a365b;
+      border-radius: 8px;
+      background: #121b35;
+      padding: 0.35rem;
+    }
+
+    .network-item {
+      width: 100%;
+      text-align: left;
+      border: 1px solid #2f4576;
+      background: #1a2748;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.7rem;
+      margin-bottom: 0.4rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .network-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .network-item:hover {
+      border-color: var(--primary);
+      background: #243766;
+    }
+
+    .network-item.selected {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    .network-item-title {
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      align-items: baseline;
+      margin-bottom: 0.3rem;
+    }
+
+    .network-item-meta {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .network-badge {
+      border-radius: 6px;
+      padding: 0.1rem 0.4rem;
+      background: #2a3b67;
+      color: #d7e5ff;
+      font-size: 0.78rem;
+    }
+
+    .network-badge.connected {
+      background: #1e6b4d;
+      color: #d9ffef;
+    }
+
+    .network-badge.saved {
+      background: #4b5a1c;
+      color: #f2ffd4;
+    }
+
+    .network-status {
+      color: var(--text-dim);
+      min-height: 1.2rem;
+      margin: 0.45rem 0 0 5px;
+    }
+
+    .network-hint {
+      color: var(--text-dim);
+      margin: 0.4rem 0 0 5px;
+      font-size: 0.9rem;
+    }
+
+    .manual-form {
+      margin-top: 0.7rem;
+      border-top: 1px dashed #3b4a72;
+      padding-top: 0.7rem;
+      display: none;
+    }
+
+    .manual-form.open {
+      display: block;
+    }
+
+    .toggle-manual {
+      margin-top: 0.7rem;
+    }
+  </style>
+
   <div class="card">
     <h3 class="secondary-title">Настройка сети (STA mode)</h3>
-    <div class="textfield-container">
-      <label for="ssid-sta">Название сети</label>
-      <input type="text" class="textfield" id="ssid-sta">
+    <div class="network-header-row">
+      <label for="sta-network-list">Доступные сети в радиусе</label>
+      <button class="btn btn-primary" style="padding: 0.25rem;" id="refresh-networks" type="button">Обновить</button>
     </div>
-    <div class="textfield-container">
-      <label for="pass-sta">Пароль сети</label>
-      <input type="text" class="textfield" id="pass-sta">
-    </div>
+    <div id="sta-network-list"></div>
+    <span class="network-status" id="scan-status">Сети еще не загружены</span>
+    <span class="network-hint">Нажмите на сеть для подключения. Если сеть новая, будет запрошен пароль.</span>
+
     <div class="checkbox-container">
       <input type="checkbox" class="checkbox" id="sta-mode">
       <label for="sta-mode">Подключаться к существующей сети (режим STA)</label>
     </div>
-    <button class="btn btn-primary" id="send-sta">Сохранить</button>
+
+    <button class="btn btn-primary toggle-manual" id="toggle-manual-sta" type="button">Показать ручной ввод</button>
+    <div class="manual-form" id="manual-sta-form">
+      <div class="textfield-container">
+        <label for="ssid-sta">Название сети</label>
+        <input type="text" class="textfield" id="ssid-sta">
+      </div>
+      <div class="textfield-container">
+        <label for="pass-sta">Пароль сети</label>
+        <input type="text" class="textfield" id="pass-sta">
+      </div>
+      <button class="btn btn-primary" style="margin-top: 0.7rem; width: 100%;" id="send-sta">Сохранить</button>
+    </div>
   </div>
 
   <div class="card">
@@ -1048,7 +1176,7 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
 
   <div class="card">
     <h3 class="secondary-title">Дополнительно</h3>
-    <button class="btn btn-primary" onclick="connectToWifi()">Подключиться к сети</button>
+    <a class="btn btn-primary" href="/saved_networks" style="text-decoration:none;">Сохраненные сети</a>
     <button class="btn btn-primary" onclick="reboot()">Перезапустить</button>
     <button class="btn btn-primary" onclick="update()">Обновить прошивку</button>
   </div>
@@ -1071,6 +1199,206 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
   const ssidApInput = document.getElementById('ssid-ap');
   const passApInput = document.getElementById('pass-ap');
   const passReqApCheckbox = document.getElementById('pass-req-ap');
+  const staNetworksList = document.getElementById('sta-network-list');
+  const refreshNetworksButton = document.getElementById('refresh-networks');
+  const scanStatus = document.getElementById('scan-status');
+  const toggleManualStaButton = document.getElementById('toggle-manual-sta');
+  const manualStaForm = document.getElementById('manual-sta-form');
+
+  let networksTimerId = null;
+  let connectPollTimerId = null;
+  let selectedNetworkSsid = '';
+
+  function signalLabelFromRssi(rssi) {
+    if (rssi >= -60) return 'сильный';
+    if (rssi >= -75) return 'средний';
+    return 'слабый';
+  }
+
+  function renderNetworks(networks) {
+    staNetworksList.innerHTML = '';
+
+    if (!Array.isArray(networks) || networks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'network-item';
+      empty.textContent = 'Сети не найдены';
+      staNetworksList.appendChild(empty);
+      return;
+    }
+
+    networks.sort((a, b) => b.rssi - a.rssi);
+
+    networks.forEach((network) => {
+      const ssid = network.ssid || '(скрытая сеть)';
+      const signalLabel = signalLabelFromRssi(network.rssi || -100);
+      const securityLabel = network.secure ? 'защищена' : 'открытая';
+
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'network-item';
+      if (network.ssid && network.ssid === selectedNetworkSsid) {
+        item.classList.add('selected');
+      }
+      item.dataset.ssid = network.ssid || '';
+
+      const badges = [];
+      if (network.connected) {
+        badges.push('<span class="network-badge connected">подключено</span>');
+      }
+      if (network.saved) {
+        badges.push('<span class="network-badge saved">сохранена</span>');
+      }
+      badges.push(`<span class="network-badge">${securityLabel}</span>`);
+
+      item.innerHTML = `
+        <div class="network-item-title">
+          <span>${ssid}</span>
+          <span>${network.rssi} dBm</span>
+        </div>
+        <div class="network-item-meta">
+          <span>Сигнал: ${signalLabel}</span>
+          ${badges.join('')}
+        </div>
+      `;
+
+      item.addEventListener('click', () => {
+        if (!network.ssid) {
+          return;
+        }
+        selectedNetworkSsid = network.ssid;
+        ssidStaInput.value = network.ssid;
+        renderNetworks(networks);
+
+        connectToNetwork(network.ssid).catch((error) => {
+          scanStatus.textContent = 'Ошибка запуска подключения';
+          console.error('Ошибка подключения к выбранной сети:', error);
+        });
+      });
+
+      staNetworksList.appendChild(item);
+    });
+  }
+
+  async function scanNetworks(force = false) {
+    if (!staModeCheckbox.checked) {
+      scanStatus.textContent = 'STA режим отключен, сканирование остановлено';
+      staNetworksList.innerHTML = '';
+      return;
+    }
+
+    scanStatus.textContent = 'Сканирование...';
+    refreshNetworksButton.disabled = true;
+
+    try {
+      const response = await fetch(force ? '/api/networks?force=1' : '/api/networks');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const networks = Array.isArray(data.networks) ? data.networks : [];
+
+      if (data.disabled) {
+        staModeCheckbox.checked = false;
+        if (networksTimerId) {
+          clearInterval(networksTimerId);
+          networksTimerId = null;
+        }
+        staNetworksList.innerHTML = '';
+        scanStatus.textContent = 'STA режим отключен на контроллере';
+        return;
+      }
+
+      renderNetworks(networks);
+      if (data.busy) {
+        scanStatus.textContent = 'Сканирование приостановлено на время подключения';
+      } else if (data.scanning) {
+        scanStatus.textContent = `Найдено сетей: ${networks.length}`;
+      } else {
+        scanStatus.textContent = `Найдено сетей: ${networks.length}`;
+      }
+    } catch (error) {
+      scanStatus.textContent = 'Ошибка сканирования сетей';
+      console.error('Ошибка сканирования Wi-Fi:', error);
+    } finally {
+      refreshNetworksButton.disabled = false;
+    }
+  }
+
+  async function connectToNetwork(ssid, password = null) {
+    const payload = { ssid };
+    if (password !== null) {
+      payload.password = password;
+      payload.passwordProvided = true;
+    }
+
+    const response = await fetch('/api/connect_network', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (e) {
+      data = {};
+    }
+
+    if (!response.ok) {
+      if (data.requiresPassword) {
+        const entered = prompt(`Введите пароль для сети ${ssid}`);
+        if (entered === null) {
+          return;
+        }
+
+        await connectToNetwork(ssid, entered);
+        return;
+      }
+
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    selectedNetworkSsid = ssid;
+    ssidStaInput.value = ssid;
+    scanStatus.textContent = `Подключение к ${ssid}...`;
+    pollConnectionStatus(ssid);
+  }
+
+  async function pollConnectionStatus(ssidForRetry) {
+    if (connectPollTimerId) {
+      clearTimeout(connectPollTimerId);
+      connectPollTimerId = null;
+    }
+
+    try {
+      const response = await fetch('/api/connection_status');
+      const data = await response.json();
+
+      if (data.connected === 0) {
+        connectPollTimerId = setTimeout(() => pollConnectionStatus(ssidForRetry), 1000);
+        return;
+      }
+
+      if (data.connected === 1) {
+        scanStatus.textContent = `Подключено, IP: ${data.ip}`;
+        alert(`Светильник подключен. Новый адрес: http://${data.ip}`);
+        return;
+      }
+
+      if (data.connected === 2 && data.needsPassword && ssidForRetry) {
+        const entered = prompt(`Пароль для ${ssidForRetry} не подошел. Введите новый пароль`);
+        if (entered !== null && entered.length > 0) {
+          await connectToNetwork(ssidForRetry, entered);
+          return;
+        }
+      }
+
+      scanStatus.textContent = 'Не удалось подключиться. Контроллер пытается вернуться к предыдущей сети.';
+    } catch (error) {
+      scanStatus.textContent = 'Устройство могло уже переключиться на новую сеть. Подключитесь к ней и откройте lamp.local или новый IP.';
+    }
+  }
 
   document.addEventListener('DOMContentLoaded', (event) => {
     ssidStaInput.value = settings.ssidSta;
@@ -1079,6 +1407,68 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     ssidApInput.value = settings.ssidAp;
     passApInput.value = settings.passwordAp;
     passReqApCheckbox.checked = settings.requiresPassAp;
+
+    if (settings.ssidSta) {
+      selectedNetworkSsid = settings.ssidSta;
+    }
+
+    if (networksTimerId) {
+      clearInterval(networksTimerId);
+    }
+
+    if (staModeCheckbox.checked) {
+      scanNetworks(true);
+      networksTimerId = setInterval(() => scanNetworks(false), 30000);
+    } else {
+      scanStatus.textContent = 'STA режим отключен, сканирование остановлено';
+      staNetworksList.innerHTML = '';
+    }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    if (networksTimerId) {
+      clearInterval(networksTimerId);
+    }
+  });
+
+  refreshNetworksButton.addEventListener('click', () => {
+    if (!staModeCheckbox.checked) {
+      scanStatus.textContent = 'Включите STA режим, чтобы сканировать сети';
+      return;
+    }
+
+    scanNetworks(true);
+  });
+
+  staModeCheckbox.addEventListener('change', async () => {
+    const enabled = staModeCheckbox.checked;
+
+    try {
+      await saveStaModeSetting(enabled);
+    } catch (error) {
+      staModeCheckbox.checked = !enabled;
+      scanStatus.textContent = 'Не удалось сохранить STA режим';
+      console.error('Ошибка сохранения STA режима:', error);
+      return;
+    }
+
+    if (networksTimerId) {
+      clearInterval(networksTimerId);
+      networksTimerId = null;
+    }
+
+    if (enabled) {
+      scanNetworks(true);
+      networksTimerId = setInterval(() => scanNetworks(false), 30000);
+    } else {
+      scanStatus.textContent = 'STA режим отключен, сканирование остановлено';
+      staNetworksList.innerHTML = '';
+    }
+  });
+
+  toggleManualStaButton.addEventListener('click', () => {
+    const opened = manualStaForm.classList.toggle('open');
+    toggleManualStaButton.textContent = opened ? 'Скрыть ручной ввод' : 'Показать ручной ввод';
   });
 
   function reboot() {
@@ -1106,30 +1496,54 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     });
   }
 
-  document.getElementById('send-sta').addEventListener('click', () => {
+  async function saveStaModeSetting(useStaModeValue) {
+    const response = await fetch('/api/save_sta_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        useStaMode: useStaModeValue
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('save_sta_mode_failed');
+    }
+
+    settings.useStaMode = useStaModeValue;
+  }
+
+  async function saveStaCredentials(showSuccessMessage = false) {
     const ssidSta = ssidStaInput.value;
     const passSta = passStaInput.value;
-    const useStaMode = staModeCheckbox.checked;
 
-    fetch('/api/save_sta', {
+    const response = await fetch('/api/save_sta_credentials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ssid: ssidSta,
-        password: passSta,
-        useStaMode: useStaMode
+        password: passSta
       })
-    })
-    .then(response => {
-      if (response.ok) {
-        alert("STA настройки сохранены!");
-      } else {
-        alert("Ошибка сохранения STA настроек.");
-      }
-    })
-    .catch(error => {
-      console.error("Ошибка сети:", error);
     });
+
+    if (!response.ok) {
+      throw new Error('save_sta_credentials_failed');
+    }
+
+    settings.ssidSta = ssidSta;
+    settings.passwordSta = passSta;
+
+    if (showSuccessMessage) {
+      alert('STA настройки сохранены!');
+    }
+  }
+
+  document.getElementById('send-sta').addEventListener('click', async () => {
+    try {
+      await saveStaCredentials(true);
+    } catch (error) {
+      alert('Ошибка сохранения STA настроек.');
+      console.error('Ошибка сети:', error);
+    }
   });
 
   document.getElementById('send-ap').addEventListener('click', () => {
@@ -1157,12 +1571,247 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
       console.error("Ошибка сети:", error);
     });
   });
-  function connectToWifi() {
-    fetch('/api/connect', { method: 'POST' })
-      .then(() => {
-        window.location.href = '/connecting';
-      });
+</script>
+)rawliteral";
+
+const char html_saved_networks[] PROGMEM = R"rawliteral(
+<div class="page active" id="saved-networks">
+  <h1>Сохраненные сети</h1>
+
+  <style>
+    .saved-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .saved-item {
+      border: 1px solid #2f4576;
+      background: #1a2748;
+      border-radius: 8px;
+      padding: 0.7rem;
+    }
+
+    .saved-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .saved-item-title {
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .saved-badge {
+      background: #2a3b67;
+      color: #d7e5ff;
+      border-radius: 6px;
+      padding: 0.12rem 0.45rem;
+      font-size: 0.78rem;
+    }
+
+    .saved-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .saved-status {
+      color: var(--text-dim);
+      margin-top: 0.6rem;
+      min-height: 1.2rem;
+    }
+  </style>
+
+  <div class="card">
+    <h3 class="secondary-title">Список сохраненных сетей</h3>
+    <div id="saved-list" class="saved-list"></div>
+    <div id="saved-status" class="saved-status">Загрузка...</div>
+  </div>
+</div>
+
+<script>
+  const savedList = document.getElementById('saved-list');
+  const savedStatus = document.getElementById('saved-status');
+  const savedNetworks = Array.isArray(window.initialSavedNetworks?.networks)
+    ? window.initialSavedNetworks.networks.map((network) => ({
+        ssid: network.ssid || '',
+        hasPassword: !!network.hasPassword,
+        isLast: !!network.isLast
+      }))
+    : [];
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
+
+  function renderSavedNetworks(networks) {
+    savedList.innerHTML = '';
+
+    if (!Array.isArray(networks) || networks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'saved-item';
+      empty.textContent = 'Нет сохраненных сетей';
+      savedList.appendChild(empty);
+      return;
+    }
+
+    networks.forEach((network) => {
+      const item = document.createElement('div');
+      item.className = 'saved-item';
+
+      const ssid = network.ssid || '(пусто)';
+      const hasPassword = !!network.hasPassword;
+      const isLast = !!network.isLast;
+
+      item.innerHTML = `
+        <div class="saved-item-header">
+          <div class="saved-item-title">${escapeHtml(ssid)}</div>
+          <div>
+            ${isLast ? '<span class="saved-badge">последняя</span>' : ''}
+            <span class="saved-badge">${hasPassword ? 'пароль задан' : 'без пароля'}</span>
+          </div>
+        </div>
+        <div class="saved-actions">
+          <button class="btn btn-primary" data-action="edit" data-ssid="${escapeHtml(ssid)}" type="button">Изменить</button>
+          <button class="btn btn-danger" data-action="delete" data-ssid="${escapeHtml(ssid)}" type="button">Удалить</button>
+        </div>
+      `;
+
+      savedList.appendChild(item);
+    });
+  }
+
+  function renderInitialSavedNetworks() {
+    renderSavedNetworks(savedNetworks);
+    savedStatus.textContent = `Сохранено сетей: ${savedNetworks.length}`;
+  }
+
+  function updateLocalStateAfterUpdate(oldSsid, newSsid, passwordProvided, newPassword) {
+    const oldIndex = savedNetworks.findIndex((network) => network.ssid === oldSsid);
+    const targetIndex = savedNetworks.findIndex((network) => network.ssid === newSsid);
+
+    if (oldIndex < 0) {
+      return;
+    }
+
+    const oldNetwork = savedNetworks[oldIndex];
+    const nextHasPassword = passwordProvided ? newPassword.length > 0 : oldNetwork.hasPassword;
+
+    if (targetIndex >= 0 && targetIndex != oldIndex) {
+      const targetNetwork = savedNetworks[targetIndex];
+      targetNetwork.hasPassword = passwordProvided ? nextHasPassword : (targetNetwork.hasPassword || oldNetwork.hasPassword);
+      targetNetwork.isLast = targetNetwork.isLast || oldNetwork.isLast;
+      savedNetworks.splice(oldIndex, 1);
+    } else {
+      oldNetwork.ssid = newSsid;
+      oldNetwork.hasPassword = nextHasPassword;
+    }
+  }
+
+  function removeLocalStateBySsid(ssid) {
+    const index = savedNetworks.findIndex((network) => network.ssid === ssid);
+    if (index < 0) {
+      return;
+    }
+
+    savedNetworks.splice(index, 1);
+  }
+
+  async function updateSavedNetwork(oldSsid) {
+    const newSsid = prompt(`Новое имя сети для ${oldSsid}`, oldSsid);
+    if (newSsid === null) {
+      return;
+    }
+
+    const trimmedSsid = newSsid.trim();
+    if (!trimmedSsid) {
+      savedStatus.textContent = 'SSID не может быть пустым';
+      return;
+    }
+
+    const newPassword = prompt('Новый пароль (оставьте пустым, чтобы не менять)');
+    if (newPassword === null) {
+      return;
+    }
+
+    const passwordProvided = newPassword.length > 0;
+    const response = await fetch('/api/saved_networks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldSsid,
+        newSsid: trimmedSsid,
+        password: newPassword,
+        passwordProvided
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    updateLocalStateAfterUpdate(oldSsid, trimmedSsid, passwordProvided, newPassword);
+    renderSavedNetworks(savedNetworks);
+    savedStatus.textContent = `Сеть обновлена. Сохранено сетей: ${savedNetworks.length}`;
+  }
+
+  async function deleteSavedNetwork(ssid) {
+    const confirmDelete = confirm(`Удалить сеть ${ssid}?`);
+    if (!confirmDelete) {
+      return;
+    }
+
+    const response = await fetch('/api/saved_networks/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    removeLocalStateBySsid(ssid);
+    renderSavedNetworks(savedNetworks);
+    savedStatus.textContent = `Сеть удалена. Сохранено сетей: ${savedNetworks.length}`;
+  }
+
+  savedList.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const action = target.getAttribute('data-action');
+    const ssid = target.getAttribute('data-ssid');
+    if (!action || !ssid) {
+      return;
+    }
+
+    try {
+      if (action === 'edit') {
+        await updateSavedNetwork(ssid);
+      } else if (action === 'delete') {
+        await deleteSavedNetwork(ssid);
+      }
+    } catch (error) {
+      savedStatus.textContent = 'Операция не выполнена';
+      console.error('Ошибка управления сохраненной сетью:', error);
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    renderInitialSavedNetworks();
+  });
 </script>
 )rawliteral";
 
@@ -1265,6 +1914,117 @@ void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const u
   request->send(response);
 }
 
+void sendSettings(AsyncWebServerRequest *request, const SettingsSTA& sta, const SettingsAP& ap) {
+  auto currentPart = std::make_shared<uint8_t>(0);
+  auto sentBytes = std::make_shared<size_t>(0);
+  auto settingsPayload = std::make_shared<String>();
+  String escapedStaSsid = escapeJsSingleQuoted(sta.ssid);
+  String escapedStaPassword = escapeJsSingleQuoted(sta.password);
+  String escapedApSsid = escapeJsSingleQuoted(ap.ssid);
+  String escapedApPassword = escapeJsSingleQuoted(ap.password);
+
+  settingsPayload->reserve(240 + escapedStaSsid.length() + escapedStaPassword.length() + escapedApSsid.length() + escapedApPassword.length());
+  settingsPayload->concat("ssidSta: '");
+  settingsPayload->concat(escapedStaSsid);
+  settingsPayload->concat("',passwordSta: '");
+  settingsPayload->concat(escapedStaPassword);
+  settingsPayload->concat("',useStaMode: ");
+  settingsPayload->concat(sta.useStaMode ? "true" : "false");
+  settingsPayload->concat(",ssidAp: '");
+  settingsPayload->concat(escapedApSsid);
+  settingsPayload->concat("',passwordAp: '");
+  settingsPayload->concat(escapedApPassword);
+  settingsPayload->concat("',requiresPassAp: ");
+  settingsPayload->concat(ap.requirePass ? "true" : "false");
+  settingsPayload->concat(" };\n");
+
+  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
+    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      size_t len = 0;
+      size_t totalLen;
+      size_t remaining;
+
+      while (true) {
+        switch ((*currentPart)) {
+          case 0:
+            totalLen = strlen_P(html_template_p1);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 1;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 1:
+            totalLen = strlen_P(html_settings_p1);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 2;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_settings_p1 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 2:
+            totalLen = settingsPayload->length();
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 3;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, settingsPayload->c_str() + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 3:
+            totalLen = strlen_P(html_settings_p2);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 4;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_settings_p2 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 4:
+            totalLen = strlen_P(html_template_p2);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 5;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p2 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 5:
+            return 0;
+        }
+      }
+    });
+
+  request->send(response);
+}
+
 // void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex) {
 //   Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
 //   AsyncResponseStream *response = request->beginResponseStream("text/html");
@@ -1300,6 +2060,143 @@ void sendWrap(AsyncWebServerRequest *request, const char* progmem_content) {
   response->print(FPSTR(html_template_p1));
   response->print(FPSTR(progmem_content));
   response->print(FPSTR(html_template_p2));
+
+  request->send(response);
+}
+
+void sendSavedNetworks(AsyncWebServerRequest *request, const SavedWiFiStorage& storage) {
+  auto currentPart = std::make_shared<uint8_t>(0);
+  auto sentBytes = std::make_shared<size_t>(0);
+  auto savedNetworksPayload = std::make_shared<String>();
+
+  savedNetworksPayload->reserve(96 + (MAX_SAVED_WIFI_NETWORKS * 72));
+  (*savedNetworksPayload) += "{\"lastIndex\":";
+  (*savedNetworksPayload) += String(storage.lastIndex);
+  (*savedNetworksPayload) += ",\"networks\":[";
+
+  bool first = true;
+  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+    if (!storage.networks[i].used) {
+      continue;
+    }
+
+    if (!first) {
+      (*savedNetworksPayload) += ',';
+    }
+    first = false;
+
+    (*savedNetworksPayload) += "{\"ssid\":\"";
+    (*savedNetworksPayload) += escapeJson(storage.networks[i].ssid);
+    (*savedNetworksPayload) += "\",\"hasPassword\":";
+    (*savedNetworksPayload) += (storage.networks[i].password[0] == '\0') ? "false" : "true";
+    (*savedNetworksPayload) += ",\"isLast\":";
+    (*savedNetworksPayload) += (storage.lastIndex == i) ? "true" : "false";
+    (*savedNetworksPayload) += '}';
+  }
+
+  (*savedNetworksPayload) += "]}";
+
+  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
+    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      (void)index;
+
+      size_t len = 0;
+      size_t totalLen;
+      size_t remaining;
+
+      static const char kPayloadPrefix[] = "<script>window.initialSavedNetworks = ";
+      static const char kPayloadSuffix[] = ";</script>";
+
+      while (true) {
+        switch ((*currentPart)) {
+          case 0:
+            totalLen = strlen_P(html_template_p1);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 1;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 1:
+            totalLen = strlen(kPayloadPrefix);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 2;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, kPayloadPrefix + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 2:
+            totalLen = savedNetworksPayload->length();
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 3;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, savedNetworksPayload->c_str() + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+          case 3:
+            totalLen = strlen(kPayloadSuffix);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 4;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy(buffer, kPayloadSuffix + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 4:
+            totalLen = strlen_P(html_saved_networks);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 5;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_saved_networks + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 5:
+            totalLen = strlen_P(html_template_p2);
+            if (*sentBytes >= totalLen) {
+              (*currentPart) = 6;
+              *sentBytes = 0;
+              continue;
+            }
+
+            remaining = totalLen - (*sentBytes);
+            len = remaining > maxLen ? maxLen : remaining;
+            memcpy_P(buffer, html_template_p2 + (*sentBytes), len);
+            *sentBytes += len;
+            return len;
+
+          case 6:
+            return 0;
+        }
+      }
+    });
 
   request->send(response);
 }

@@ -63,6 +63,7 @@ FirePixelState states[NUM_LEDS];
 #define CONNECT_ATTEMPT_TIMEOUT_MS 5000
 #define CONNECT_PROGRESS_STEP_MS 150
 #define SCAN_REQUEST_ACTIVE_WINDOW_MS 15000
+#define RECONNECT_AFTER_DROP_DELAY_MS 10000
 
 const byte DNS_PORT = 53;
 DNSServer dnsServer;
@@ -86,11 +87,18 @@ char pendingConnectSsid[32] = "";
 char pendingConnectPassword[32] = "";
 bool pendingConnectUsedSavedPassword = false;
 bool pendingConnectSaveProvidedCredentials = false;
+bool pendingConnectFallbackToAp = false;
 char rollbackConnectSsid[32] = "";
 char rollbackConnectPassword[32] = "";
 bool hasRollbackConnectCredentials = false;
 
 bool hasQueuedConnectRequest = false;
+
+bool wasStaConnected = false;
+bool reconnectAfterDropActive = false;
+bool reconnectAttemptInProgress = false;
+unsigned long reconnectLossStartedAt = 0;
+uint8_t reconnectAttemptIndex = 0;
 //======================================Server======================================
 
 void startAP();
@@ -344,7 +352,9 @@ bool beginConnectionAttempt(const char* ssid, const char* password, bool usedSav
   const char* safePassword = (password == nullptr) ? "" : password;
 
   SettingsSTA currentStaSettings = loadSTASettings();
-  if (currentStaSettings.ssid[0] != '\0' && strcmp(currentStaSettings.ssid, ssid) != 0) {
+  pendingConnectFallbackToAp = !currentStaSettings.useStaMode;
+
+  if (!pendingConnectFallbackToAp && currentStaSettings.ssid[0] != '\0' && strcmp(currentStaSettings.ssid, ssid) != 0) {
     strlcpy(rollbackConnectSsid, currentStaSettings.ssid, sizeof(rollbackConnectSsid));
     strlcpy(rollbackConnectPassword, currentStaSettings.password, sizeof(rollbackConnectPassword));
     hasRollbackConnectCredentials = true;
@@ -380,6 +390,11 @@ bool beginConnectionAttempt(const char* ssid, const char* password, bool usedSav
 }
 
 void restorePreviousConnectionAfterFailure() {
+  if (pendingConnectFallbackToAp) {
+    startAP();
+    return;
+  }
+
   if (hasRollbackConnectCredentials && rollbackConnectSsid[0] != '\0') {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
@@ -394,6 +409,7 @@ void restorePreviousConnectionAfterFailure() {
 //======================================Server Init======================================
 void startAP() {
   //Serial.println("AP MODE запуск");
+  MDNS.end();
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   SettingsAP s = loadAPSettings();
   const char* apSSID = (s.ssid[0] == '\0') ? "LED_Setup" : s.ssid;
@@ -995,7 +1011,7 @@ void beginServer(){
   server.begin();
 }
 
-bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex) {
+bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex, bool showProgress) {
   if (ssid == nullptr || ssid[0] == '\0') {
     return false;
   }
@@ -1003,7 +1019,9 @@ bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex)
   const uint16_t stepsPerAttempt = CONNECT_ATTEMPT_TIMEOUT_MS / CONNECT_PROGRESS_STEP_MS;
   uint16_t currentStep = 0;
 
-  showConnectionProgress(0, stepsPerAttempt, segmentIndex);
+  if (showProgress) {
+    showConnectionProgress(0, stepsPerAttempt, segmentIndex);
+  }
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(false);
@@ -1013,21 +1031,121 @@ bool connectToWiFi(const char* ssid, const char* password, uint8_t segmentIndex)
   unsigned long startAttemptTime = millis();
   while (millis() - startAttemptTime < CONNECT_ATTEMPT_TIMEOUT_MS) {
     if (WiFi.status() == WL_CONNECTED) {
-      showConnectionProgress(stepsPerAttempt, stepsPerAttempt, segmentIndex);
+      if (showProgress) {
+        showConnectionProgress(stepsPerAttempt, stepsPerAttempt, segmentIndex);
+      }
       return true;
     }
 
     if (currentStep < stepsPerAttempt) {
       currentStep++;
     }
-    showConnectionProgress(currentStep, stepsPerAttempt, segmentIndex);
+    if (showProgress) {
+      showConnectionProgress(currentStep, stepsPerAttempt, segmentIndex);
+    }
     delay(CONNECT_PROGRESS_STEP_MS);
   }
 
   WiFi.disconnect(false);
   delay(100);
-  showConnectionProgress(stepsPerAttempt, stepsPerAttempt, segmentIndex);
+  if (showProgress) {
+    showConnectionProgress(stepsPerAttempt, stepsPerAttempt, segmentIndex);
+  }
   return false;
+}
+
+bool resolveConnectionAttemptCredentials(uint8_t attemptIndex, char* outSsid, size_t outSsidSize, char* outPassword, size_t outPasswordSize) {
+  if (outSsid == nullptr || outPassword == nullptr || outSsidSize == 0 || outPasswordSize == 0) {
+    return false;
+  }
+
+  outSsid[0] = '\0';
+  outPassword[0] = '\0';
+
+  if (attemptIndex == 0) {
+    SettingsSTA staSettings = loadSTASettings();
+    if (staSettings.ssid[0] == '\0') {
+      return false;
+    }
+
+    strlcpy(outSsid, staSettings.ssid, outSsidSize);
+    strlcpy(outPassword, staSettings.password, outPasswordSize);
+    return true;
+  }
+
+  if (attemptIndex > 2) {
+    return false;
+  }
+
+  SettingsSTA staSettings = loadSTASettings();
+  SavedWiFiStorage storage = loadSavedWiFiStorage();
+  uint8_t targetSavedMatchIndex = attemptIndex - 1;
+  uint8_t matchedSavedNetworks = 0;
+
+  WiFi.mode(WIFI_STA);
+  int foundNetworks = WiFi.scanNetworks(false, true);
+  if (foundNetworks <= 0) {
+    WiFi.scanDelete();
+    return false;
+  }
+
+  for (int i = 0; i < foundNetworks; i++) {
+    String scannedSsid = WiFi.SSID(i);
+
+    for (int j = 0; j < MAX_SAVED_WIFI_NETWORKS; j++) {
+      if (!storage.networks[j].used) {
+        continue;
+      }
+
+      if (strcmp(storage.networks[j].ssid, scannedSsid.c_str()) != 0) {
+        continue;
+      }
+
+      if (staSettings.ssid[0] != '\0' && strcmp(storage.networks[j].ssid, staSettings.ssid) == 0) {
+        break;
+      }
+
+      if (matchedSavedNetworks == targetSavedMatchIndex) {
+        strlcpy(outSsid, storage.networks[j].ssid, outSsidSize);
+        strlcpy(outPassword, storage.networks[j].password, outPasswordSize);
+        WiFi.scanDelete();
+        return true;
+      }
+
+      matchedSavedNetworks++;
+      break;
+    }
+  }
+
+  WiFi.scanDelete();
+  return false;
+}
+
+void signalReconnectFailureAndStartAp() {
+  startAP();
+
+  for (uint8_t i = 0; i < 2; i++) {
+    for (uint16_t j = 0; j < NUM_LEDS; j++) {
+      strip.SetPixelColor(j, RgbColor(255, 0, 0));
+    }
+    strip.Show();
+    delay(300);
+
+    for (uint16_t j = 0; j < NUM_LEDS; j++) {
+      strip.SetPixelColor(j, RgbColor(0, 0, 0));
+    }
+    strip.Show();
+    delay(300);
+  }
+  if(mode == 3) {
+    RgbColor col = FromHex(colorHex).Dim(brightness);
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.SetPixelColor(i, col);
+    }
+    strip.Show();
+  } else if (mode == 5) {
+    drawGradient(stops, stopsCount);
+  }
 }
 
 void persistActiveStaNetwork(const char* ssid, const char* password) {
@@ -1045,49 +1163,24 @@ void persistActiveStaNetwork(const char* ssid, const char* password) {
   setLastSavedWiFiNetwork(staSettings.ssid);
 }
 
-bool connectUsingSavedNetworks() {
-  SavedWiFiStorage storage = loadSavedWiFiStorage();
-  uint8_t attemptIndex = 0;
-  const uint8_t MAX_ATTEMPTS = 3;
-
-  if (attemptIndex < MAX_ATTEMPTS) {
-    if (storage.lastIndex >= 0 && storage.lastIndex < MAX_SAVED_WIFI_NETWORKS && storage.networks[storage.lastIndex].used) {
-      if (connectToWiFi(storage.networks[storage.lastIndex].ssid, storage.networks[storage.lastIndex].password, attemptIndex)) {
-        persistActiveStaNetwork(storage.networks[storage.lastIndex].ssid, storage.networks[storage.lastIndex].password);
-        return true;
-      }
+bool connectUsingSavedNetworks(bool showProgress) {
+  for (uint8_t attemptIndex = 0; attemptIndex < 3; attemptIndex++) {
+    if (!resolveConnectionAttemptCredentials(
+      attemptIndex,
+      pendingConnectSsid,
+      sizeof(pendingConnectSsid),
+      pendingConnectPassword,
+      sizeof(pendingConnectPassword)
+    )) {
+      continue;
     }
-    attemptIndex++;
-  }
 
-  WiFi.mode(WIFI_STA);
-  int foundNetworks = WiFi.scanNetworks(false, true);
-  if (foundNetworks <= 0) {
-    WiFi.scanDelete();
-    return false;
-  }
-
-  for (int i = 0; i < foundNetworks && attemptIndex < MAX_ATTEMPTS; i++) {
-    String scannedSsid = WiFi.SSID(i);
-
-    for (int j = 0; j < MAX_SAVED_WIFI_NETWORKS; j++) {
-      if (!storage.networks[j].used) {
-        continue;
-      }
-
-      if (strcmp(storage.networks[j].ssid, scannedSsid.c_str()) == 0) {
-        if (connectToWiFi(storage.networks[j].ssid, storage.networks[j].password, attemptIndex)) {
-          persistActiveStaNetwork(storage.networks[j].ssid, storage.networks[j].password);
-          WiFi.scanDelete();
-          return true;
-        }
-        attemptIndex++;
-        break;
-      }
+    if (connectToWiFi(pendingConnectSsid, pendingConnectPassword, attemptIndex, showProgress)) {
+      persistActiveStaNetwork(pendingConnectSsid, pendingConnectPassword);
+      return true;
     }
   }
 
-  WiFi.scanDelete();
   return false;
 }
 //======================================Server Init======================================
@@ -1119,7 +1212,7 @@ void setup() {
   SettingsSTA s = loadSTASettings();
 
   if (s.useStaMode) {
-    if (!connectUsingSavedNetworks()) {
+    if (!connectUsingSavedNetworks(true)) {
       startAP();
         for (uint8_t i = 0; i < 2; i++) {
         for (uint16_t j = 0; j < NUM_LEDS; j++) {
@@ -1148,13 +1241,53 @@ void setup() {
 }
 
 void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    wasStaConnected = true;
+  } else if (wasStaConnected && !isConnecting && !hasQueuedConnectRequest && !reconnectAfterDropActive) {
+    wasStaConnected = false;
+    reconnectAfterDropActive = true;
+    reconnectAttemptInProgress = false;
+    reconnectAttemptIndex = 0;
+    reconnectLossStartedAt = millis();
+  }
+
   if (isScanRequestWindowActive()) {
     updateNetworksScanCache();
   } else if (isNetworksScanInProgress) {
     stopNetworksScan();
   }
 
+  if (reconnectAfterDropActive && !isConnecting && !hasQueuedConnectRequest && !reconnectAttemptInProgress) {
+    if (millis() - reconnectLossStartedAt >= RECONNECT_AFTER_DROP_DELAY_MS) {
+      bool started = false;
+
+      if (reconnectAttemptIndex < 3 && resolveConnectionAttemptCredentials(
+        reconnectAttemptIndex,
+        pendingConnectSsid,
+        sizeof(pendingConnectSsid),
+        pendingConnectPassword,
+        sizeof(pendingConnectPassword)
+      )) {
+        started = beginConnectionAttempt(pendingConnectSsid, pendingConnectPassword, true, false);
+      }
+
+      reconnectAttemptIndex++;
+
+      if (started) {
+        reconnectAttemptInProgress = true;
+      } else if (reconnectAttemptIndex >= 3) {
+        reconnectAfterDropActive = false;
+        reconnectAttemptInProgress = false;
+        signalReconnectFailureAndStartAp();
+      }
+    }
+  }
+
   if (hasQueuedConnectRequest && !isConnecting) {
+    reconnectAfterDropActive = false;
+    reconnectAttemptInProgress = false;
+    reconnectAttemptIndex = 0;
+
     bool started = beginConnectionAttempt(
       pendingConnectSsid,
       pendingConnectPassword,
@@ -1180,6 +1313,12 @@ void loop() {
       
       isConnecting = false;
 
+      if (reconnectAttemptInProgress) {
+        reconnectAfterDropActive = false;
+        reconnectAttemptInProgress = false;
+        reconnectAttemptIndex = 0;
+      }
+
       if (pendingConnectSsid[0] != '\0') {
         SettingsSTA staSettings;
         strlcpy(staSettings.ssid, pendingConnectSsid, sizeof(staSettings.ssid));
@@ -1194,7 +1333,11 @@ void loop() {
         setLastSavedWiFiNetwork(pendingConnectSsid);
       }
 
+      MDNS.begin("lamp");
+      isConnected = true;
+
       hasRollbackConnectCredentials = false;
+      pendingConnectFallbackToAp = false;
       rollbackConnectSsid[0] = '\0';
       rollbackConnectPassword[0] = '\0';
       pendingConnectUsedSavedPassword = false;
@@ -1207,7 +1350,12 @@ void loop() {
       //Serial.println("restoring privious connection");
       //Serial.print("SSID: ");      Serial.println(rollbackConnectSsid);
 
-      restorePreviousConnectionAfterFailure();
+      bool failedReconnectAttempt = reconnectAttemptInProgress;
+      reconnectAttemptInProgress = false;
+
+      if (!failedReconnectAttempt) {
+        restorePreviousConnectionAfterFailure();
+      }
 
       isConnecting = false;
       pendingConnectUsedSavedPassword = false;
@@ -1215,8 +1363,14 @@ void loop() {
       pendingConnectSsid[0] = '\0';
       pendingConnectPassword[0] = '\0';
       hasRollbackConnectCredentials = false;
+      pendingConnectFallbackToAp = false;
       rollbackConnectSsid[0] = '\0';
       rollbackConnectPassword[0] = '\0';
+
+      if (failedReconnectAttempt && reconnectAttemptIndex >= 3) {
+        reconnectAfterDropActive = false;
+        signalReconnectFailureAndStartAp();
+      }
     }
 
   }

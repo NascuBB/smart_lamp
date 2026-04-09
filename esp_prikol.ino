@@ -12,7 +12,7 @@
 #include <NeoPixelBus.h>
 #include <NeoPixelAnimator.h>
 
-#define FW_VERSION "0.2.1"
+#define FW_VERSION "0.3.0"
 
 //======================================LED======================================
 //-------------------GLOBAL-------------------

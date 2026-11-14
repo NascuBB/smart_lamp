@@ -1,33 +1,22 @@
 #ifndef HtmlResponses_H
 #define HtmlResponses_H
 
-#include <ESPAsyncWebServer.h>
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <ESPAsyncWebServer.h>
 #include "Settings.h"
 
-//-------------------Gradient-------------------
-struct GradientStop {
-  float position;
-  char colorHex[8];
-};
-//-------------------Gradient-------------------
-
-void sendWrap(AsyncWebServerRequest *request, const char* progmem_content);
-void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const GradientStop* gradientStops, const int stopsCount, const bool power);
-void sendSettings(AsyncWebServerRequest *request, const SettingsSTA& sta, const SettingsAP& ap);
-void sendSavedNetworks(AsyncWebServerRequest *request, const SavedWiFiStorage& storage);
-//String index_P(const uint8_t brightness, const uint8_t mode, const bool power, const char* color);
-// String wrap_P(const char* progmem_content, const Settings& settings, const Last& last, int brightness);
+void sendIndex(AsyncWebServerRequest* request, const LampState& state);
+void sendSettings(AsyncWebServerRequest* request, const SettingsAP& ap, bool useStaMode);
+void sendSavedNetworks(AsyncWebServerRequest* request, const SavedWiFiStorage& storage);
 
 extern const char html_template_p1[];
 extern const char html_template_p2[];
-//extern const char html_template_short[];
 extern const char html_index_p1[];
 extern const char html_index_p2[];
 extern const char html_settings_p1[];
 extern const char html_settings_p2[];
-extern const char html_connecting[];
-extern const char html_saved_networks[];
-// extern const char html_connected[];
+extern const char html_saved_networks_p1[];
+extern const char html_saved_networks_p2[];
 
 #endif

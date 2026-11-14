@@ -1,0 +1,124 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SKETCH_DIR: esp_prikol
+  FQBN: esp8266:esp8266:generic:xtal=160,eesz=4M1M
+  ESP8266_CORE: esp8266:esp8266@3.1.2
+  ESP8266_INDEX: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.SKETCH_DIR }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.SKETCH_DIR }}
+
+      - name: Read firmware version
+        id: version
+        run: |
+          version=$(sed -nE 's/^#define FW_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' config.h)
+          if [ -z "$version" ]; then
+            echo "::error file=config.h::FW_VERSION must look like \"1.2.3\""
+            exit 1
+          fi
+
+          release=false
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ] \
+             && ! git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            release=true
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "Firmware $version, release: $release"
+
+      - name: Extract release notes
+        if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            /^## / { in_section = ($2 == v || $2 == "[" v "]") ; next }
+            in_section
+          ' CHANGELOG.md | sed -e '/./,$!d' > "$RUNNER_TEMP/notes.md"
+
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error file=CHANGELOG.md::Add a '## $VERSION' section to CHANGELOG.md before releasing"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/notes.md"
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-${{ env.ESP8266_CORE }}-${{ hashFiles(format('{0}/.github/workflows/release.yml', env.SKETCH_DIR)) }}
+
+      - name: Install core and libraries
+        run: |
+          arduino-cli core update-index --additional-urls "$ESP8266_INDEX"
+          arduino-cli core install "$ESP8266_CORE" --additional-urls "$ESP8266_INDEX"
+          arduino-cli lib install --no-deps \
+            "ESPAsyncWebServer@3.1.0" \
+            "ESPAsyncTCP@1.2.4" \
+            "ArduinoJson@7.4.2" \
+            "NeoPixelBus by Makuna@2.8.4"
+
+      - name: Compile
+        run: |
+          arduino-cli compile --fqbn "$FQBN" --warnings default --output-dir build .
+          cp build/esp_prikol.ino.bin "$RUNNER_TEMP/firmware.bin"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.version.outputs.version }}-${{ github.sha }}
+          path: ${{ runner.temp }}/firmware.bin
+
+      - name: Publish release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" "$RUNNER_TEMP/firmware.bin" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Update version.txt for 0.3.x lamps
+        if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$(tr -d '[:space:]' < version.txt)" = "$VERSION" ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          echo "$VERSION" > version.txt
+          git commit -am "chore: set version.txt to $VERSION"
+          git push origin main

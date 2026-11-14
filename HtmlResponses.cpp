@@ -1,5 +1,6 @@
 #include "HtmlResponses.h"
-#include "StringEscapeUtils.h"
+
+#include <memory>
 
 const char html_template_p1[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -81,7 +82,6 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
       transition: 0.2s;
       display: grid;
     }
-
 
     @keyframes fadeIn {
       from { opacity: 0; }
@@ -312,10 +312,10 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
     .btn-danger {
       background-color: var(--danger);
       border: 2px solid var(--danger);
-      :hover {
-        background-color: #d63031;
-        border-color: #d63031;
-      }
+    }
+    .btn-danger:hover {
+      background-color: #b71c1c;
+      border-color: #b71c1c;
     }
     .btn-danger:disabled {
       opacity: 0.5;
@@ -333,40 +333,10 @@ const char html_template_p1[] PROGMEM = R"rawliteral(
   <main>
 )rawliteral";
 
-const char html_template_p2[] PROGMEM = R"rawliteral(  
+const char html_template_p2[] PROGMEM = R"rawliteral(
   </main>
 </body>
 </html>
-)rawliteral";
-
-const char html_connecting[] PROGMEM = R"rawliteral(
-<div class="page active">
-  <h1 id="title">Подключение</h1>
-  <div class="card">
-    <h3 id="stitle" class="secondary-title">Идет подключение к вашей сети</h3>
-    <p id="warn" style="color: var(--warning);">Не покидайте эту страницу</p>
-    <p id="msg">После успешного подключения запомните новый адрес для управления</p>
-  </div>
-</div>
-<script>
-  function checkConnection() {
-    fetch('/api/connection_status')
-      .then(r => r.json())
-      .then(data => {
-        if (data.connected == 1) {
-          document.getElementById('msg').innerHTML = 'Подключитесь к вашей сети и откройте <a style="font-weight: bold; color: var(--primary); font-size: large;" href="http://' + data.ip + '">http://' + data.ip + '</a> или <a style="font-weight: bold; color: var(--primary); font-size: large;" href="http://lamp.local">http://lamp.local</a>';
-          document.getElementById('title').innerHTML = 'Подключено!';
-          document.getElementById('stitle').innerHTML = 'Подключение к вашей сети завершено';
-          document.getElementById('warn').innerHTML = 'Запомните этот адрес иначе вы не сможете подключиться к светильнику';
-        } else if(data.connected == 2) {
-          document.getElementById('msg').innerHTML = 'Ошибка подключения, поменяйте данные для подключения к сети и повторите попытку';
-        } else {
-          setTimeout(checkConnection, 15000);
-        }
-      });
-  }
-  window.onload = checkConnection;
-</script>
 )rawliteral";
 
 const char html_index_p1[] PROGMEM = R"rawliteral(
@@ -387,17 +357,18 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
       .di {
         overflow: hidden;
       }
-      /* --- Стили для редактора градиента --- */
+
       .gradient-editor-container {
           margin: 1.5rem 0;
-          user-select: none; /* Чтобы текст не выделялся при перетаскивании */
+          user-select: none;
       }
 
       .gradient-bar-wrap {
           position: relative;
-          height: 40px; /* Высота области с ползунками */
+          touch-action: none;
+          height: 40px;
           margin-bottom: 10px;
-          cursor: crosshair; /* Курсор-крестик, намекающий на добавление */
+          cursor: crosshair;
       }
 
       .gradient-preview-bg {
@@ -405,27 +376,35 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
           height: 100%;
           border-radius: 4px;
           border: 2px solid var(--bg-light);
-          background: linear-gradient(90deg, #fff, #000); /* Заглушка */
+          background: linear-gradient(90deg, #fff, #000);
       }
 
       .gradient-stop-marker {
           position: absolute;
-          top: -5px; /* Чуть выше полоски */
+          top: -5px;
           width: 14px;
-          height: 50px; /* Выходит за пределы полоски вниз */
+          height: 50px;
           background-color: #fff;
           border: 2px solid #333;
           border-radius: 4px;
-          transform: translateX(-50%); /* Центрируем относительно точки */
+          transform: translateX(-50%);
           cursor: grab;
           z-index: 10;
           box-shadow: 0 2px 4px rgba(0,0,0,0.5);
           transition: transform 0.1s, border-color 0.1s;
       }
 
-      .gradient-stop-marker:hover {
-          z-index: 11;
-          transform: translateX(-50%) scale(1.1);
+      @media (hover: hover) {
+        .gradient-stop-marker:hover {
+            z-index: 11;
+            transform: translateX(-50%) scale(1.1);
+        }
+      }
+
+      .gradient-stop-marker::before {
+          content: '';
+          position: absolute;
+          inset: -4px -12px;
       }
 
       .gradient-stop-marker.active {
@@ -436,14 +415,19 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
       }
 
       .gradient-stop-marker::after {
-          /* Цветовой квадратик внутри маркера */
+
           content: '';
           display: block;
           width: 100%;
           height: 20px;
-          background-color: inherit; /* Будем менять через JS */
+          background-color: inherit;
           margin-top: 26px;
           border-top: 1px solid #ccc;
+      }
+
+      .gradient-controls-row .btn {
+          padding: 0.5rem 0.75rem;
+          font-size: 1rem;
       }
 
       .gradient-controls-row {
@@ -524,7 +508,7 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
                       <span id="stop-position-val" style="font-weight: bold;">0%</span>
                   </div>
 
-                  <button class="btn-danger" id="btn-delete-stop">Удалить точку</button>
+                  <button class="btn btn-danger" id="btn-delete-stop">Удалить точку</button>
               </div>
 
               <p style="margin-top: 5px; font-size: 0.8rem; color: var(--text-dim);">
@@ -533,7 +517,6 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
           </div>
         </div>
       </div>
-
 
       <h2>Яркость</h2>
       <div class="slider-container">
@@ -547,11 +530,10 @@ const char html_index_p1[] PROGMEM = R"rawliteral(
     </div>
 
 <script>
-  const state = {
-)rawliteral";
+  const state = )rawliteral";
 
-const char html_index_p2[] PROGMEM = R"rawliteral(
-let gradientStops = [];
+const char html_index_p2[] PROGMEM = R"rawliteral(;
+  let gradientStops = [];
 
   function init() {
     changeCards();
@@ -568,7 +550,6 @@ let gradientStops = [];
   }
 
   let selectedStopId = 1;
-  let isDragging = false;
   let dragStopId = null;
 
   const powerBtn = document.getElementById('power-btn');
@@ -592,23 +573,17 @@ let gradientStops = [];
   const gradDiv = document.getElementById('grad-div');
   const colDiv = document.getElementById('col-div');
   powerBtn.addEventListener('click', () => {
-    state.power = !state.power;
+    const nextPower = !state.power;
     fetch('/api/setPower', {
-        method: 'POST',
-      }).then(response => {
-        if (!response.ok){
-          state.power = !state.power;
-          throw new Error('Ошибка запроса');
-        }
-        return response.json();
-      })
-      .then(data => {
-        updatePowerState();
-      })
-      .catch(err => {
-        console.error('Ошибка:', err);
-        state.power = !state.power;
-      });
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ power: nextPower })
+    }).then(response => {
+      if (!response.ok) throw new Error('Ошибка запроса');
+      state.power = nextPower;
+      updatePowerState();
+    })
+    .catch(err => console.error('Ошибка:', err));
   });
 
   function updatePowerState() {
@@ -659,7 +634,7 @@ let gradientStops = [];
       fetch('/api/setMode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: btn.dataset.mode })
+        body: JSON.stringify({ mode: +btn.dataset.mode })
       }).then(response => {
         if (!response.ok) throw new Error('Ошибка запроса');
         return response.json();
@@ -692,13 +667,13 @@ let gradientStops = [];
       fetch('/api/setSpeed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ speed: btn.dataset.speed })
+        body: JSON.stringify({ speed: +btn.dataset.speed })
       }).then(response => {
         if (!response.ok) throw new Error('Ошибка запроса');
         return response.json();
       })
       .then(data => {
-        state.speed = btn.dataset.speed;
+        state.speed = +btn.dataset.speed;
         speedValue.textContent = state.speed;
         btn.classList.add('active');
       })
@@ -760,29 +735,36 @@ function initGradient() {
   updateControls();
 }
 
+const markers = new Map();
+
 function renderStops() {
-  const oldMarkers = gradBox.querySelectorAll('.gradient-stop-marker');
-  oldMarkers.forEach(m => m.remove());
+  markers.forEach((el, id) => {
+    if (!gradientStops.some(s => s.id === id)) {
+      el.remove();
+      markers.delete(id);
+    }
+  });
 
   gradientStops.forEach(stop => {
-    const el = document.createElement('div');
-    el.className = 'gradient-stop-marker';
-    if (stop.id === selectedStopId) el.classList.add('active');
-
+    let el = markers.get(stop.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'gradient-stop-marker';
+      el.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        startDrag(stop.id, e);
+      });
+      el.addEventListener('pointermove', (e) => {
+        if (dragStopId === stop.id) moveStop(e.clientX);
+      });
+      el.addEventListener('pointerup', endDrag);
+      el.addEventListener('pointercancel', endDrag);
+      gradBox.appendChild(el);
+      markers.set(stop.id, el);
+    }
     el.style.left = `${stop.pos}%`;
     el.style.backgroundColor = stop.color;
-
-    el.addEventListener('mousedown', (e) => {
-      e.stopPropagation();
-      startDrag(stop.id, e);
-    });
-
-    el.addEventListener('touchstart', (e) => {
-      e.stopPropagation();
-      startDrag(stop.id, e.touches[0]);
-    }, {passive: false});
-
-    gradBox.appendChild(el);
+    el.classList.toggle('active', stop.id === selectedStopId);
   });
 }
 
@@ -792,14 +774,12 @@ function updatePreview() {
   gradPreview.style.background = `linear-gradient(90deg, ${cssGradient})`;
 }
 
-
 function updateControls(changePicker = true) {
   const stop = gradientStops.find(s => s.id === selectedStopId);
   if (stop) {
-    if(changePicker) stopColorPicker.value = stop.color;
+    if (changePicker) stopColorPicker.value = stop.color;
     stopColorPicker.style.backgroundColor = stop.outline;
     stopPosLabel.textContent = Math.round(stop.pos) + '%';
-
     btnDeleteStop.disabled = gradientStops.length <= 2;
   }
 }
@@ -816,88 +796,53 @@ stopColorPicker.addEventListener('input', (e) => {
 
 btnDeleteStop.addEventListener('click', () => {
   if (gradientStops.length <= 2) return;
-
   gradientStops = gradientStops.filter(s => s.id !== selectedStopId);
-
   selectedStopId = gradientStops[0].id;
-
   renderStops();
   updatePreview();
   updateControls();
   sendGradientDebounced();
 });
 
-gradBox.addEventListener('mousedown', (e) => {
-  if (e.target !== gradBox && e.target !== gradPreview) return;
-  addStopAtEvent(e);
-});
+function percentFromClientX(clientX) {
+  const rect = gradBox.getBoundingClientRect();
+  const percent = ((clientX - rect.left) / rect.width) * 100;
+  return Math.max(0, Math.min(100, percent));
+}
 
-function addStopAtEvent(e) {
+gradBox.addEventListener('pointerdown', (e) => {
+  if (e.target !== gradBox && e.target !== gradPreview) return;
   if (gradientStops.length >= 10) {
-    alert("Максимум 10 точек");
+    alert('Максимум 10 точек');
     return;
   }
 
-  const rect = gradBox.getBoundingClientRect();
-  let x = e.clientX - rect.left;
-  let percent = (x / rect.width) * 100;
-  percent = Math.max(0, Math.min(100, percent));
-
-  const newColor = stopColorPicker.value;
-
-  const newId = generateId();
-  gradientStops.push({ id: newId, pos: percent, color: newColor, outline: newColor });
-
-  selectedStopId = newId;
-
-  renderStops();
+  const color = stopColorPicker.value;
+  const id = generateId();
+  gradientStops.push({ id, pos: percentFromClientX(e.clientX), color, outline: color });
+  startDrag(id, e);
   updatePreview();
+});
+
+function startDrag(id, e) {
+  e.preventDefault();
+  dragStopId = id;
+  selectedStopId = id;
+  renderStops();
+  markers.get(id).setPointerCapture(e.pointerId);
   updateControls();
+}
+
+function endDrag() {
+  if (dragStopId === null) return;
+  dragStopId = null;
   sendGradientDebounced();
 }
 
-function startDrag(id, eventClient) {
-  isDragging = true;
-  dragStopId = id;
-  selectedStopId = id;
-  renderStops(); 
-  updateControls();
-}
-
-
-document.addEventListener('mousemove', (e) => {
-  if (!isDragging) return;
-  moveStop(e.clientX);
-});
-document.addEventListener('mouseup', () => {
-  if (isDragging) {
-    isDragging = false;
-    dragStopId = null;
-    sendGradientDebounced();
-  }
-});
-
-document.addEventListener('touchmove', (e) => {
-  if (!isDragging) return;
-  e.preventDefault();
-  moveStop(e.touches[0].clientX);
-}, {passive: false});
-document.addEventListener('touchend', () => {
-  if (isDragging) {
-    isDragging = false;
-    sendGradientDebounced();
-  }
-});
-
 function moveStop(clientX) {
-  const rect = gradBox.getBoundingClientRect();
-  let x = clientX - rect.left;
-  let percent = (x / rect.width) * 100;
-  percent = Math.max(0, Math.min(100, percent));
-
   const stop = gradientStops.find(s => s.id === dragStopId);
   if (stop) {
-    stop.pos = percent;
+    stop.pos = percentFromClientX(clientX);
     renderStops();
     updatePreview();
     updateControls();
@@ -916,8 +861,6 @@ function sendGradientDebounced() {
       colors: sortedStops.map(s => s.color),
       stops: sortedStops.map(s => parseFloat((s.pos / 100).toFixed(4)))
     };
-
-    // console.log("Sending:", payload);
 
     fetch('/api/setGradient', {
         method: 'POST',
@@ -969,7 +912,7 @@ function sendGradientDebounced() {
   brightnessSlider.addEventListener('input', (e) => {
     if (!state.power) return;
 
-    state.brightness = e.target.value;
+    state.brightness = +e.target.value;
     brightnessPercent = Math.round((state.brightness * 100) / 255);
 
     brightnessSliderValue.textContent = `${brightnessPercent}%`;
@@ -1149,10 +1092,10 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
         <input type="text" class="textfield" id="ssid-sta">
       </div>
       <div class="textfield-container">
-        <label for="pass-sta">Пароль сети</label>
+        <label for="pass-sta">Пароль сети (пусто для открытой сети)</label>
         <input type="text" class="textfield" id="pass-sta">
       </div>
-      <button class="btn btn-primary" style="margin-top: 0.7rem; width: 100%;" id="send-sta">Сохранить</button>
+      <button class="btn btn-primary" style="margin-top: 0.7rem; width: 100%;" id="send-sta">Подключиться</button>
     </div>
   </div>
 
@@ -1178,21 +1121,17 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
     <h3 class="secondary-title">Дополнительно</h3>
     <a class="btn btn-primary" href="/saved_networks" style="text-decoration:none;">Сохраненные сети</a>
     <button class="btn btn-primary" onclick="reboot()">Перезапустить</button>
-    <button class="btn btn-primary" onclick="update()">Обновить прошивку</button>
+    <button class="btn btn-primary" onclick="update()">Обновить прошивку с GitHub</button>
+    <label class="btn btn-primary" for="fw-file">Загрузить прошивку из файла (.bin)</label>
+    <input type="file" id="fw-file" accept=".bin" style="display: none;">
+    <span class="network-status" id="fw-status"></span>
   </div>
 </div>
 
 <script>
-  const settings = {
-)rawliteral";
+  const settings = )rawliteral";
 
-    
-    
-    
-    
-    
-
-const char html_settings_p2[] PROGMEM = R"rawliteral(
+const char html_settings_p2[] PROGMEM = R"rawliteral(;
   const ssidStaInput = document.getElementById('ssid-sta');
   const passStaInput = document.getElementById('pass-sta');
   const staModeCheckbox = document.getElementById('sta-mode');
@@ -1208,6 +1147,15 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
   let networksTimerId = null;
   let connectPollTimerId = null;
   let selectedNetworkSsid = '';
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   function signalLabelFromRssi(rssi) {
     if (rssi >= -60) return 'сильный';
@@ -1252,7 +1200,7 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 
       item.innerHTML = `
         <div class="network-item-title">
-          <span>${ssid}</span>
+          <span>${escapeHtml(ssid)}</span>
           <span>${network.rssi} dBm</span>
         </div>
         <div class="network-item-meta">
@@ -1313,7 +1261,8 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
       if (data.busy) {
         scanStatus.textContent = 'Сканирование приостановлено на время подключения';
       } else if (data.scanning) {
-        scanStatus.textContent = `Найдено сетей: ${networks.length}`;
+        scanStatus.textContent = 'Сканирование...';
+        setTimeout(() => scanNetworks(false), 1500);
       } else {
         scanStatus.textContent = `Найдено сетей: ${networks.length}`;
       }
@@ -1402,7 +1351,6 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 
   document.addEventListener('DOMContentLoaded', (event) => {
     ssidStaInput.value = settings.ssidSta;
-    passStaInput.value = settings.passwordSta;
     staModeCheckbox.checked = settings.useStaMode;
     ssidApInput.value = settings.ssidAp;
     passApInput.value = settings.passwordAp;
@@ -1512,38 +1460,48 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
     settings.useStaMode = useStaModeValue;
   }
 
-  async function saveStaCredentials(showSuccessMessage = false) {
-    const ssidSta = ssidStaInput.value;
-    const passSta = passStaInput.value;
-
-    const response = await fetch('/api/save_sta_credentials', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ssid: ssidSta,
-        password: passSta
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error('save_sta_credentials_failed');
-    }
-
-    settings.ssidSta = ssidSta;
-    settings.passwordSta = passSta;
-
-    if (showSuccessMessage) {
-      alert('STA настройки сохранены!');
-    }
-  }
-
   document.getElementById('send-sta').addEventListener('click', async () => {
-    try {
-      await saveStaCredentials(true);
-    } catch (error) {
-      alert('Ошибка сохранения STA настроек.');
-      console.error('Ошибка сети:', error);
+    const ssid = ssidStaInput.value.trim();
+    if (!ssid) {
+      alert('Введите название сети');
+      return;
     }
+
+    try {
+      await connectToNetwork(ssid, passStaInput.value);
+    } catch (error) {
+      scanStatus.textContent = 'Ошибка запуска подключения';
+      console.error('Ошибка подключения:', error);
+    }
+  });
+
+  const fwStatus = document.getElementById('fw-status');
+  document.getElementById('fw-file').addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file || !confirm(`Прошить светильник файлом ${file.name}?`)) {
+      return;
+    }
+
+    const form = new FormData();
+    form.append('firmware', file, file.name);
+
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        fwStatus.textContent = `Загрузка: ${Math.round(e.loaded * 100 / e.total)}%`;
+      }
+    };
+    xhr.onload = () => {
+      fwStatus.textContent = xhr.status === 200
+        ? 'Прошивка загружена, светильник перезагружается...'
+        : `Ошибка прошивки: ${xhr.responseText}`;
+    };
+    xhr.onerror = () => {
+      fwStatus.textContent = 'Ошибка загрузки файла';
+    };
+    xhr.open('POST', '/api/firmware');
+    xhr.send(form);
   });
 
   document.getElementById('send-ap').addEventListener('click', () => {
@@ -1574,7 +1532,12 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(
 </script>
 )rawliteral";
 
-const char html_saved_networks[] PROGMEM = R"rawliteral(
+const char html_saved_networks_p1[] PROGMEM = R"rawliteral(
+<script>
+  window.initialSavedNetworks = )rawliteral";
+
+const char html_saved_networks_p2[] PROGMEM = R"rawliteral(;
+</script>
 <div class="page active" id="saved-networks">
   <h1>Сохраненные сети</h1>
 
@@ -1815,388 +1778,94 @@ const char html_saved_networks[] PROGMEM = R"rawliteral(
 </script>
 )rawliteral";
 
-void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex, const GradientStop* gradientStops, const int stopsCount, const bool power) {
-  auto currentPart = std::make_shared<uint8_t>(0);
-  auto sentBytes = std::make_shared<size_t>(0);
+namespace {
+  struct PageContext {
+    PGM_P parts[5];
+    String data;
+    uint8_t part = 0;
+    size_t offset = 0;
+  };
 
-  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
-    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      size_t len = 0;
-      size_t totalLen;
-      size_t remaining;
+  void sendPage(AsyncWebServerRequest* request, PGM_P before, String data, PGM_P after) {
+    data.replace("</", "<\\/");
 
-      while(true)
-      {
-        switch((*currentPart)){
-          case 0:
-            totalLen = strlen_P(html_template_p1);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 1;
-              *sentBytes = 0;
-              continue;
-            } else {
-              remaining = totalLen - (*sentBytes);
-              len = remaining > maxLen ? maxLen : remaining;
-              memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
-              *sentBytes += len;
-              break; 
-            }
+    auto ctx = std::make_shared<PageContext>();
+    ctx->parts[0] = html_template_p1;
+    ctx->parts[1] = before;
+    ctx->parts[2] = nullptr;
+    ctx->parts[3] = after;
+    ctx->parts[4] = html_template_p2;
+    ctx->data = std::move(data);
 
-          case 1:
-            totalLen = strlen_P(html_index_p1);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 2;
-              *sentBytes = 0;
-              continue;
-            } else {
-              remaining = totalLen - (*sentBytes);
-              len = remaining > maxLen ? maxLen : remaining;
-              memcpy_P(buffer, html_index_p1 + (*sentBytes), len);
-              *sentBytes += len;
-              break;
-            }
+    request->send(new AsyncChunkedResponse("text/html", [ctx](uint8_t* buffer, size_t maxLen, size_t) -> size_t {
+      size_t written = 0;
+      while (written < maxLen && ctx->part < 5) {
+        PGM_P part = ctx->parts[ctx->part];
+        size_t length = part ? strlen_P(part) : ctx->data.length();
+        size_t count = std::min(length - ctx->offset, maxLen - written);
 
-          case 2:
-            {
-              int offset = 0;
-              offset += snprintf((char*)buffer + offset, maxLen - offset,
-                "brightness: %d, mode: %d, speed: %d, power: %s, color: '%s', gSs: [",
-                brightness, mode, speed, power ? "true" : "false", colorHex);
-
-              for (size_t i = 0; i < stopsCount; i++) {
-                if ((maxLen - offset) < 64) break;
-
-                offset += snprintf((char*)buffer + offset, maxLen - offset,
-                  "{pos:%.2f,color:'%s'}%s", 
-                  gradientStops[i].position, 
-                  gradientStops[i].colorHex,
-                  (i < stopsCount - 1) ? "," : ""
-                );
-              }
-              offset += snprintf((char*)buffer + offset, maxLen - offset, "]};\n");
-
-              len = offset;
-              
-              (*currentPart)++;
-            }
-            break;
-
-
-          case 3:
-            totalLen = strlen_P(html_index_p2);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 4;
-              *sentBytes = 0;
-              continue;
-            } else {
-              remaining = totalLen - (*sentBytes);
-              len = remaining > maxLen ? maxLen : remaining;
-              memcpy_P(buffer, html_index_p2 + (*sentBytes), len);
-              *sentBytes += len;
-              break;
-            }
-
-          case 4:
-            len = strlen_P(html_template_p2);
-            if (len > maxLen) len = maxLen; 
-            memcpy_P(buffer, html_template_p2, len);
-            (*currentPart)++;
-            break;
-
-          case 5:
-            return 0;
+        if (part) {
+          memcpy_P(buffer + written, part + ctx->offset, count);
+        } else {
+          memcpy(buffer + written, ctx->data.c_str() + ctx->offset, count);
         }
-        return len;
-      }
-      return 0;
-    });
 
-  request->send(response);
-}
-
-void sendSettings(AsyncWebServerRequest *request, const SettingsSTA& sta, const SettingsAP& ap) {
-  auto currentPart = std::make_shared<uint8_t>(0);
-  auto sentBytes = std::make_shared<size_t>(0);
-  auto settingsPayload = std::make_shared<String>();
-  String escapedStaSsid = escapeJsSingleQuoted(sta.ssid);
-  String escapedStaPassword = escapeJsSingleQuoted(sta.password);
-  String escapedApSsid = escapeJsSingleQuoted(ap.ssid);
-  String escapedApPassword = escapeJsSingleQuoted(ap.password);
-
-  settingsPayload->reserve(240 + escapedStaSsid.length() + escapedStaPassword.length() + escapedApSsid.length() + escapedApPassword.length());
-  settingsPayload->concat("ssidSta: '");
-  settingsPayload->concat(escapedStaSsid);
-  settingsPayload->concat("',passwordSta: '");
-  settingsPayload->concat(escapedStaPassword);
-  settingsPayload->concat("',useStaMode: ");
-  settingsPayload->concat(sta.useStaMode ? "true" : "false");
-  settingsPayload->concat(",ssidAp: '");
-  settingsPayload->concat(escapedApSsid);
-  settingsPayload->concat("',passwordAp: '");
-  settingsPayload->concat(escapedApPassword);
-  settingsPayload->concat("',requiresPassAp: ");
-  settingsPayload->concat(ap.requirePass ? "true" : "false");
-  settingsPayload->concat(" };\n");
-
-  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
-    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      size_t len = 0;
-      size_t totalLen;
-      size_t remaining;
-
-      while (true) {
-        switch ((*currentPart)) {
-          case 0:
-            totalLen = strlen_P(html_template_p1);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 1;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 1:
-            totalLen = strlen_P(html_settings_p1);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 2;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_settings_p1 + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 2:
-            totalLen = settingsPayload->length();
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 3;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy(buffer, settingsPayload->c_str() + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 3:
-            totalLen = strlen_P(html_settings_p2);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 4;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_settings_p2 + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 4:
-            totalLen = strlen_P(html_template_p2);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 5;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_template_p2 + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 5:
-            return 0;
+        written += count;
+        ctx->offset += count;
+        if (ctx->offset >= length) {
+          ctx->part++;
+          ctx->offset = 0;
         }
       }
-    });
-
-  request->send(response);
-}
-
-// void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex) {
-//   Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-//   AsyncResponseStream *response = request->beginResponseStream("text/html");
-
-//   response->print(FPSTR(html_template_p1));
-//   response->print(FPSTR(html_index_p1));
-
-//   response->printf("brightness: %d, mode: %d, speed: %d, power: %s, color: '%s'};\n", brightness, mode, speed, mode != 0 ? "1" : "0", colorHex);
-
-//   response->print(FPSTR(html_index_p2));
-//   response->print(FPSTR(html_template_p2));
-
-//   request->send(response);
-  
-// }
-
-// void sendIndex(AsyncWebServerRequest *request, const uint8_t brightness, const uint8_t mode, const uint8_t speed, const char* colorHex) {
-//   AsyncResponseStream *response = request->beginResponseStream("text/html");
-//   for(int i = 0; i < 5000; i++){
-//     response->printf("%d ", i);
-//     if(i % 100 == 0){
-//       Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-//     }
-//   }
-//   Serial.printf("Freeeeeeee heap: %d\n", ESP.getFreeHeap());
-//   request->send(response);
-  
-// }
-
-void sendWrap(AsyncWebServerRequest *request, const char* progmem_content) {
-  AsyncResponseStream *response = request->beginResponseStream("text/html");
-
-  response->print(FPSTR(html_template_p1));
-  response->print(FPSTR(progmem_content));
-  response->print(FPSTR(html_template_p2));
-
-  request->send(response);
-}
-
-void sendSavedNetworks(AsyncWebServerRequest *request, const SavedWiFiStorage& storage) {
-  auto currentPart = std::make_shared<uint8_t>(0);
-  auto sentBytes = std::make_shared<size_t>(0);
-  auto savedNetworksPayload = std::make_shared<String>();
-
-  savedNetworksPayload->reserve(96 + (MAX_SAVED_WIFI_NETWORKS * 72));
-  (*savedNetworksPayload) += "{\"lastIndex\":";
-  (*savedNetworksPayload) += String(storage.lastIndex);
-  (*savedNetworksPayload) += ",\"networks\":[";
-
-  bool first = true;
-  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
-    if (!storage.networks[i].used) {
-      continue;
-    }
-
-    if (!first) {
-      (*savedNetworksPayload) += ',';
-    }
-    first = false;
-
-    (*savedNetworksPayload) += "{\"ssid\":\"";
-    (*savedNetworksPayload) += escapeJson(storage.networks[i].ssid);
-    (*savedNetworksPayload) += "\",\"hasPassword\":";
-    (*savedNetworksPayload) += (storage.networks[i].password[0] == '\0') ? "false" : "true";
-    (*savedNetworksPayload) += ",\"isLast\":";
-    (*savedNetworksPayload) += (storage.lastIndex == i) ? "true" : "false";
-    (*savedNetworksPayload) += '}';
+      return written;
+    }));
   }
 
-  (*savedNetworksPayload) += "]}";
+  String toJson(const JsonDocument& doc) {
+    String out;
+    serializeJson(doc, out);
+    return out;
+  }
+}
 
-  AsyncWebServerResponse *response = new AsyncChunkedResponse("text/html",
-    [=](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      (void)index;
+void sendIndex(AsyncWebServerRequest* request, const LampState& state) {
+  JsonDocument doc;
+  doc["brightness"] = state.brightness;
+  doc["mode"] = state.mode;
+  doc["speed"] = state.speed;
+  doc["power"] = state.power;
+  doc["color"] = state.colorHex;
+  JsonArray stops = doc["gSs"].to<JsonArray>();
+  for (uint8_t i = 0; i < state.stopsCount; i++) {
+    JsonObject stop = stops.add<JsonObject>();
+    stop["pos"] = state.stops[i].position;
+    stop["color"] = state.stops[i].colorHex;
+  }
+  sendPage(request, html_index_p1, toJson(doc), html_index_p2);
+}
 
-      size_t len = 0;
-      size_t totalLen;
-      size_t remaining;
+void sendSettings(AsyncWebServerRequest* request, const SettingsAP& ap, bool useStaMode) {
+  SavedWiFiNetwork last;
+  JsonDocument doc;
+  doc["ssidSta"] = getLastSavedWiFiNetwork(&last) ? last.ssid : "";
+  doc["useStaMode"] = useStaMode;
+  doc["ssidAp"] = ap.ssid;
+  doc["passwordAp"] = ap.password;
+  doc["requiresPassAp"] = ap.requirePass;
+  sendPage(request, html_settings_p1, toJson(doc), html_settings_p2);
+}
 
-      static const char kPayloadPrefix[] = "<script>window.initialSavedNetworks = ";
-      static const char kPayloadSuffix[] = ";</script>";
-
-      while (true) {
-        switch ((*currentPart)) {
-          case 0:
-            totalLen = strlen_P(html_template_p1);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 1;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_template_p1 + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 1:
-            totalLen = strlen(kPayloadPrefix);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 2;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy(buffer, kPayloadPrefix + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 2:
-            totalLen = savedNetworksPayload->length();
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 3;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy(buffer, savedNetworksPayload->c_str() + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-          case 3:
-            totalLen = strlen(kPayloadSuffix);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 4;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy(buffer, kPayloadSuffix + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 4:
-            totalLen = strlen_P(html_saved_networks);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 5;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_saved_networks + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 5:
-            totalLen = strlen_P(html_template_p2);
-            if (*sentBytes >= totalLen) {
-              (*currentPart) = 6;
-              *sentBytes = 0;
-              continue;
-            }
-
-            remaining = totalLen - (*sentBytes);
-            len = remaining > maxLen ? maxLen : remaining;
-            memcpy_P(buffer, html_template_p2 + (*sentBytes), len);
-            *sentBytes += len;
-            return len;
-
-          case 6:
-            return 0;
-        }
-      }
-    });
-
-  request->send(response);
+void sendSavedNetworks(AsyncWebServerRequest* request, const SavedWiFiStorage& storage) {
+  JsonDocument doc;
+  doc["lastIndex"] = storage.lastIndex;
+  JsonArray networks = doc["networks"].to<JsonArray>();
+  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+    const SavedWiFiNetwork& network = storage.networks[i];
+    if (!network.used) continue;
+    JsonObject item = networks.add<JsonObject>();
+    item["ssid"] = network.ssid;
+    item["hasPassword"] = network.password[0] != '\0';
+    item["isLast"] = storage.lastIndex == i;
+  }
+  sendPage(request, html_saved_networks_p1, toJson(doc), html_saved_networks_p2);
 }

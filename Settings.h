@@ -2,18 +2,12 @@
 #define Settings_H
 
 #include <Arduino.h>
-#include <EEPROM.h> 
 
-#define EEPROM_SIZE 512
+#define EEPROM_SIZE 1024
 #define MAX_SAVED_WIFI_NETWORKS 5
+#define MAX_GRADIENT_STOPS 10
 
-struct SettingsSTA {
-  char ssid[32];
-  char password[32];
-  bool useStaMode;
-};
-
-struct SettingsAP{
+struct SettingsAP {
   char ssid[32];
   char password[32];
   bool requirePass;
@@ -31,25 +25,40 @@ struct SavedWiFiStorage {
   SavedWiFiNetwork networks[MAX_SAVED_WIFI_NETWORKS];
 };
 
-// struct Last { 
-//   int lastEffect;
-//   char lastIp[15];
-// };
+struct GradientStop {
+  float position;
+  char colorHex[8];
+};
 
-void saveSTASettings(const SettingsSTA &settings);
-SettingsSTA loadSTASettings();
+struct LampState {
+  uint8_t mode;
+  uint8_t brightness;
+  uint8_t speed;
+  bool power;
+  char colorHex[8];
+  uint8_t stopsCount;
+  GradientStop stops[MAX_GRADIENT_STOPS];
+};
 
-void saveAPSettings(const SettingsAP &settings);
+void storageBegin();
+void storageLoop();
+void storageFlush();
+
 SettingsAP loadAPSettings();
+void saveAPSettings(const SettingsAP& settings);
 
-SavedWiFiStorage loadSavedWiFiStorage();
-void saveSavedWiFiStorage(const SavedWiFiStorage& storage);
-bool findSavedWiFiNetwork(const char* ssid, SavedWiFiNetwork* networkOut, int* indexOut = nullptr);
-bool upsertSavedWiFiNetwork(const char* ssid, const char* password, bool setAsLast);
+bool getUseStaMode();
+void setUseStaMode(bool value);
+
+const SavedWiFiStorage& savedWiFi();
+bool findSavedWiFiNetwork(const char* ssid, SavedWiFiNetwork* networkOut = nullptr);
 bool getLastSavedWiFiNetwork(SavedWiFiNetwork* networkOut);
+bool upsertSavedWiFiNetwork(const char* ssid, const char* password, bool setAsLast);
 void setLastSavedWiFiNetwork(const char* ssid);
+bool deleteSavedWiFiNetwork(const char* ssid);
+bool updateSavedWiFiNetwork(const char* oldSsid, const char* newSsid, const char* newPassword);
 
-// void saveLast(const Last &last);
-// Last loadLast();
+bool loadLampState(LampState& state);
+void saveLampState(const LampState& state);
 
 #endif

@@ -1,172 +1,204 @@
 #include "Settings.h"
+#include "config.h"
 
-#include <cstddef>
+#include <EEPROM.h>
 #include <cstring>
 
 namespace {
-  const uint32_t SAVED_WIFI_MAGIC = 0x57534631UL; // WSF1
-  const int AP_SETTINGS_ADDR = 0;
-  const int STA_SETTINGS_ADDR = AP_SETTINGS_ADDR + sizeof(SettingsAP);
-  const int SAVED_WIFI_ADDR = STA_SETTINGS_ADDR + sizeof(SettingsSTA);
+  struct SettingsSTA {
+    char ssid[32];
+    char password[32];
+    bool useStaMode;
+  };
 
-  static_assert(SAVED_WIFI_ADDR + (int)sizeof(SavedWiFiStorage) <= EEPROM_SIZE, "EEPROM_SIZE is too small for SavedWiFiStorage");
+  struct StoredLampState {
+    uint32_t magic;
+    LampState state;
+  };
+
+  const uint32_t SAVED_WIFI_MAGIC = 0x57534631UL;
+  const uint32_t LAMP_STATE_MAGIC = 0x4C4D5031UL;
+
+  const int AP_SETTINGS_ADDR  = 0;
+  const int STA_SETTINGS_ADDR = AP_SETTINGS_ADDR + sizeof(SettingsAP);
+  const int SAVED_WIFI_ADDR   = STA_SETTINGS_ADDR + sizeof(SettingsSTA);
+  const int LAMP_STATE_ADDR   = 512;
+
+  static_assert(SAVED_WIFI_ADDR + sizeof(SavedWiFiStorage) <= LAMP_STATE_ADDR, "Wi-Fi settings overlap lamp state");
+  static_assert(LAMP_STATE_ADDR + sizeof(StoredLampState) <= EEPROM_SIZE, "EEPROM_SIZE is too small");
+
+  SavedWiFiStorage wifiStorage;
+  bool commitPending = false;
+  unsigned long lastWriteAt = 0;
+
+  template <typename T>
+  void writeBlock(int address, const T& value) {
+    EEPROM.put(address, value);
+    commitPending = true;
+    lastWriteAt = millis();
+  }
 
   void sanitizeString(char* str, size_t size) {
     str[size - 1] = '\0';
-    if ((unsigned char)str[0] == 0xFF) {
+    if ((uint8_t)str[0] == 0xFF) {
       str[0] = '\0';
     }
   }
 
-  void sanitizeSavedNetwork(SavedWiFiNetwork& network) {
-    sanitizeString(network.ssid, sizeof(network.ssid));
-    sanitizeString(network.password, sizeof(network.password));
-
-    if (network.ssid[0] == '\0') {
-      network.used = false;
-      network.password[0] = '\0';
+  SettingsSTA loadSta() {
+    SettingsSTA sta;
+    EEPROM.get(STA_SETTINGS_ADDR, sta);
+    sanitizeString(sta.ssid, sizeof(sta.ssid));
+    sanitizeString(sta.password, sizeof(sta.password));
+    if ((uint8_t)sta.useStaMode == 0xFF) {
+      sta.useStaMode = false;
     }
+    return sta;
   }
 
-  int findStorageIndexBySsid(const SavedWiFiStorage& storage, const char* ssid) {
+  int findIndexBySsid(const char* ssid) {
     if (ssid == nullptr || ssid[0] == '\0') {
       return -1;
     }
-
     for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
-      if (storage.networks[i].used && strcmp(storage.networks[i].ssid, ssid) == 0) {
+      if (wifiStorage.networks[i].used && strcmp(wifiStorage.networks[i].ssid, ssid) == 0) {
         return i;
       }
     }
-
     return -1;
   }
 
-  int findFreeStorageIndex(const SavedWiFiStorage& storage) {
+  int findFreeIndex() {
     for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
-      if (!storage.networks[i].used) {
+      if (!wifiStorage.networks[i].used) {
         return i;
       }
     }
-
     return -1;
   }
 
-  void migrateLegacyStaToSavedWiFi(SavedWiFiStorage& storage) {
-    SettingsSTA sta = loadSTASettings();
+  void clearNetwork(SavedWiFiNetwork& network) {
+    memset(&network, 0, sizeof(network));
+  }
+
+  void saveWifiStorage() {
+    writeBlock(SAVED_WIFI_ADDR, wifiStorage);
+  }
+
+  void loadWifiStorage() {
+    EEPROM.get(SAVED_WIFI_ADDR, wifiStorage);
+
+    if (wifiStorage.magic != SAVED_WIFI_MAGIC) {
+      memset(&wifiStorage, 0, sizeof(wifiStorage));
+      wifiStorage.magic = SAVED_WIFI_MAGIC;
+      wifiStorage.lastIndex = -1;
+      saveWifiStorage();
+    }
+
+    for (auto& network : wifiStorage.networks) {
+      sanitizeString(network.ssid, sizeof(network.ssid));
+      sanitizeString(network.password, sizeof(network.password));
+      if (network.ssid[0] == '\0') {
+        clearNetwork(network);
+      }
+    }
+
+    if (wifiStorage.lastIndex < 0 || wifiStorage.lastIndex >= MAX_SAVED_WIFI_NETWORKS ||
+        !wifiStorage.networks[wifiStorage.lastIndex].used) {
+      wifiStorage.lastIndex = -1;
+    }
+  }
+
+  void migrateLegacySta() {
+    SettingsSTA sta = loadSta();
     if (sta.ssid[0] == '\0') {
       return;
     }
 
-    strlcpy(storage.networks[0].ssid, sta.ssid, sizeof(storage.networks[0].ssid));
-    strlcpy(storage.networks[0].password, sta.password, sizeof(storage.networks[0].password));
-    storage.networks[0].used = true;
-    storage.lastIndex = 0;
+    LOG("Settings: migrating legacy STA network '%s'", sta.ssid);
+    upsertSavedWiFiNetwork(sta.ssid, sta.password, true);
+    memset(sta.ssid, 0, sizeof(sta.ssid));
+    memset(sta.password, 0, sizeof(sta.password));
+    writeBlock(STA_SETTINGS_ADDR, sta);
   }
 }
 
-void saveAPSettings(const SettingsAP &settings){
+void storageBegin() {
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.put(AP_SETTINGS_ADDR, settings);
+  loadWifiStorage();
+  migrateLegacySta();
+}
+
+void storageLoop() {
+  if (commitPending && millis() - lastWriteAt > 500) {
+    commitPending = false;
+    if (!EEPROM.commit()) {
+      LOG("Settings: EEPROM commit failed");
+    }
+  }
+}
+
+void storageFlush() {
+  commitPending = false;
   EEPROM.commit();
-  EEPROM.end();
 }
 
 SettingsAP loadAPSettings() {
   SettingsAP settings;
-  EEPROM.begin(EEPROM_SIZE);
   EEPROM.get(AP_SETTINGS_ADDR, settings);
-  EEPROM.end();
-  if ((unsigned char)settings.ssid[0] == 0xFF || settings.ssid[0] == 0) {
-    strlcpy(settings.ssid, "Led_Setup", sizeof(settings.ssid));
+  sanitizeString(settings.ssid, sizeof(settings.ssid));
+  sanitizeString(settings.password, sizeof(settings.password));
+
+  if (settings.ssid[0] == '\0') {
+    strlcpy(settings.ssid, DEFAULT_AP_SSID, sizeof(settings.ssid));
     settings.password[0] = '\0';
     settings.requirePass = false;
-    
-    saveAPSettings(settings); 
-  } else {
-    settings.ssid[sizeof(settings.ssid) - 1] = '\0';
-    settings.password[sizeof(settings.password) - 1] = '\0';
   }
-
+  if ((uint8_t)settings.requirePass == 0xFF) {
+    settings.requirePass = false;
+  }
   return settings;
 }
 
-void saveSTASettings(const SettingsSTA &settings) {
-  EEPROM.begin(EEPROM_SIZE);
-  EEPROM.put(STA_SETTINGS_ADDR, settings);
-  EEPROM.commit();
-  EEPROM.end();
+void saveAPSettings(const SettingsAP& settings) {
+  writeBlock(AP_SETTINGS_ADDR, settings);
 }
 
-SettingsSTA loadSTASettings() {
-  SettingsSTA settings;
-  EEPROM.begin(EEPROM_SIZE);
-  EEPROM.get(STA_SETTINGS_ADDR, settings);
-  EEPROM.end();
-
-  if ((unsigned char)settings.ssid[0] == 0xFF) {
-    settings.ssid[0] = '\0';
-    settings.password[0] = '\0';
-    settings.useStaMode = false;
-
-    saveSTASettings(settings);
-  } else {
-    settings.ssid[sizeof(settings.ssid) - 1] = '\0';
-    settings.password[sizeof(settings.password) - 1] = '\0';
-  }
-
-  return settings;
+bool getUseStaMode() {
+  return loadSta().useStaMode;
 }
 
-SavedWiFiStorage loadSavedWiFiStorage() {
-  SavedWiFiStorage storage;
-
-  EEPROM.begin(EEPROM_SIZE);
-  EEPROM.get(SAVED_WIFI_ADDR, storage);
-  EEPROM.end();
-
-  if (storage.magic != SAVED_WIFI_MAGIC) {
-    memset(&storage, 0, sizeof(storage));
-    storage.magic = SAVED_WIFI_MAGIC;
-    storage.lastIndex = -1;
-    migrateLegacyStaToSavedWiFi(storage);
-    saveSavedWiFiStorage(storage);
-    return storage;
+void setUseStaMode(bool value) {
+  SettingsSTA sta = loadSta();
+  if (sta.useStaMode == value) {
+    return;
   }
-
-  for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
-    sanitizeSavedNetwork(storage.networks[i]);
-  }
-
-  if (storage.lastIndex < 0 || storage.lastIndex >= MAX_SAVED_WIFI_NETWORKS || !storage.networks[storage.lastIndex].used) {
-    storage.lastIndex = -1;
-  }
-
-  return storage;
+  sta.useStaMode = value;
+  writeBlock(STA_SETTINGS_ADDR, sta);
 }
 
-void saveSavedWiFiStorage(const SavedWiFiStorage& storage) {
-  EEPROM.begin(EEPROM_SIZE);
-  EEPROM.put(SAVED_WIFI_ADDR, storage);
-  EEPROM.commit();
-  EEPROM.end();
+const SavedWiFiStorage& savedWiFi() {
+  return wifiStorage;
 }
 
-bool findSavedWiFiNetwork(const char* ssid, SavedWiFiNetwork* networkOut, int* indexOut) {
-  SavedWiFiStorage storage = loadSavedWiFiStorage();
-  int index = findStorageIndexBySsid(storage, ssid);
+bool findSavedWiFiNetwork(const char* ssid, SavedWiFiNetwork* networkOut) {
+  int index = findIndexBySsid(ssid);
   if (index < 0) {
     return false;
   }
-
   if (networkOut != nullptr) {
-    *networkOut = storage.networks[index];
+    *networkOut = wifiStorage.networks[index];
   }
+  return true;
+}
 
-  if (indexOut != nullptr) {
-    *indexOut = index;
+bool getLastSavedWiFiNetwork(SavedWiFiNetwork* networkOut) {
+  if (wifiStorage.lastIndex < 0) {
+    return false;
   }
-
+  if (networkOut != nullptr) {
+    *networkOut = wifiStorage.networks[wifiStorage.lastIndex];
+  }
   return true;
 }
 
@@ -175,64 +207,110 @@ bool upsertSavedWiFiNetwork(const char* ssid, const char* password, bool setAsLa
     return false;
   }
 
-  SavedWiFiStorage storage = loadSavedWiFiStorage();
-
-  int index = findStorageIndexBySsid(storage, ssid);
+  int index = findIndexBySsid(ssid);
   if (index < 0) {
-    index = findFreeStorageIndex(storage);
+    index = findFreeIndex();
   }
-
   if (index < 0) {
-    index = storage.lastIndex >= 0 ? storage.lastIndex : 0;
+    index = (wifiStorage.lastIndex + 1) % MAX_SAVED_WIFI_NETWORKS;
   }
 
-  bool wasUsed = storage.networks[index].used;
-  storage.networks[index].used = true;
-  strlcpy(storage.networks[index].ssid, ssid, sizeof(storage.networks[index].ssid));
+  SavedWiFiNetwork& network = wifiStorage.networks[index];
+  bool changed = !network.used || strcmp(network.ssid, ssid) != 0 ||
+                 strcmp(network.password, password == nullptr ? "" : password) != 0;
 
-  if (password != nullptr && password[0] != '\0') {
-    strlcpy(storage.networks[index].password, password, sizeof(storage.networks[index].password));
-  } else if (!wasUsed) {
-    storage.networks[index].password[0] = '\0';
+  network.used = true;
+  strlcpy(network.ssid, ssid, sizeof(network.ssid));
+  strlcpy(network.password, password == nullptr ? "" : password, sizeof(network.password));
+
+  if (setAsLast && wifiStorage.lastIndex != index) {
+    wifiStorage.lastIndex = index;
+    changed = true;
   }
 
-  if (setAsLast) {
-    storage.lastIndex = index;
+  if (changed) {
+    saveWifiStorage();
   }
-
-  saveSavedWiFiStorage(storage);
-  return true;
-}
-
-bool getLastSavedWiFiNetwork(SavedWiFiNetwork* networkOut) {
-  if (networkOut == nullptr) {
-    return false;
-  }
-
-  SavedWiFiStorage storage = loadSavedWiFiStorage();
-  if (storage.lastIndex < 0 || storage.lastIndex >= MAX_SAVED_WIFI_NETWORKS) {
-    return false;
-  }
-
-  if (!storage.networks[storage.lastIndex].used) {
-    return false;
-  }
-
-  *networkOut = storage.networks[storage.lastIndex];
   return true;
 }
 
 void setLastSavedWiFiNetwork(const char* ssid) {
-  if (ssid == nullptr || ssid[0] == '\0') {
+  int index = findIndexBySsid(ssid);
+  if (index < 0 || wifiStorage.lastIndex == index) {
     return;
   }
+  wifiStorage.lastIndex = index;
+  saveWifiStorage();
+}
 
-  SavedWiFiStorage storage = loadSavedWiFiStorage();
-  int index = findStorageIndexBySsid(storage, ssid);
+bool deleteSavedWiFiNetwork(const char* ssid) {
+  int index = findIndexBySsid(ssid);
   if (index < 0) {
-    return;
+    return false;
   }
 
-  storage.lastIndex = index;
-  saveSavedWiFiStorage(storage);
+  clearNetwork(wifiStorage.networks[index]);
+
+  if (wifiStorage.lastIndex == index) {
+    wifiStorage.lastIndex = -1;
+    for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+      if (wifiStorage.networks[i].used) {
+        wifiStorage.lastIndex = i;
+        break;
+      }
+    }
+  }
+
+  saveWifiStorage();
+  return true;
+}
+
+bool updateSavedWiFiNetwork(const char* oldSsid, const char* newSsid, const char* newPassword) {
+  if (newSsid == nullptr || newSsid[0] == '\0') {
+    return false;
+  }
+
+  int sourceIndex = findIndexBySsid(oldSsid);
+  if (sourceIndex < 0) {
+    return false;
+  }
+
+  int targetIndex = findIndexBySsid(newSsid);
+  int writeIndex = (targetIndex >= 0) ? targetIndex : sourceIndex;
+
+  SavedWiFiNetwork& target = wifiStorage.networks[writeIndex];
+  const char* password = (newPassword != nullptr) ? newPassword : wifiStorage.networks[sourceIndex].password;
+  char passwordCopy[sizeof(target.password)];
+  strlcpy(passwordCopy, password, sizeof(passwordCopy));
+
+  target.used = true;
+  strlcpy(target.ssid, newSsid, sizeof(target.ssid));
+  strlcpy(target.password, passwordCopy, sizeof(target.password));
+
+  if (writeIndex != sourceIndex) {
+    clearNetwork(wifiStorage.networks[sourceIndex]);
+    if (wifiStorage.lastIndex == sourceIndex) {
+      wifiStorage.lastIndex = writeIndex;
+    }
+  }
+
+  saveWifiStorage();
+  return true;
+}
+
+bool loadLampState(LampState& state) {
+  StoredLampState stored;
+  EEPROM.get(LAMP_STATE_ADDR, stored);
+  if (stored.magic != LAMP_STATE_MAGIC) {
+    return false;
+  }
+  state = stored.state;
+  return true;
+}
+
+void saveLampState(const LampState& state) {
+  StoredLampState stored;
+  stored.magic = LAMP_STATE_MAGIC;
+  stored.state = state;
+  writeBlock(LAMP_STATE_ADDR, stored);
 }

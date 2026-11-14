@@ -4,11 +4,18 @@
 #include <Arduino.h>
 #include <functional>
 
-// callback function on percentage
-typedef std::function<void(int)> ProgressCallback;
+typedef std::function<void(int percent)> ProgressCallback;
+
+enum class UpdateCheck : uint8_t {
+  Error,
+  UpToDate,
+  Available,
+};
+
+UpdateCheck checkForUpdate(const char* latestReleaseUrl, const char* currentVersion);
 
 bool performOTA(const char* firmwareURL, const ProgressCallback& onProgress = nullptr);
 
-bool isUpdateAvailable(const char* versionURL, const char* currentVersion);
+int compareVersions(const char* a, const char* b);
 
 #endif

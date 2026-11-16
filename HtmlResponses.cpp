@@ -1118,6 +1118,22 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
   </div>
 
   <div class="card">
+    <h3 class="secondary-title">Общее</h3>
+    <div class="checkbox-container">
+      <input type="checkbox" class="checkbox" id="remember-mode">
+      <label for="remember-mode">Запоминать режим и его цвета после перезагрузки</label>
+    </div>
+    <div class="checkbox-container">
+      <input type="checkbox" class="checkbox" id="remember-levels">
+      <label for="remember-levels">Запоминать яркость и скорость после перезагрузки</label>
+    </div>
+    <div class="checkbox-container">
+      <input type="checkbox" class="checkbox" id="auto-update">
+      <label for="auto-update">Автообновление через GitHub при включении</label>
+    </div>
+  </div>
+
+  <div class="card">
     <h3 class="secondary-title">Дополнительно</h3>
     <a class="btn btn-primary" href="/saved_networks" style="text-decoration:none;">Сохраненные сети</a>
     <button class="btn btn-primary" onclick="reboot()">Перезапустить</button>
@@ -1138,6 +1154,9 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
   const ssidApInput = document.getElementById('ssid-ap');
   const passApInput = document.getElementById('pass-ap');
   const passReqApCheckbox = document.getElementById('pass-req-ap');
+  const rememberModeCheckbox = document.getElementById('remember-mode');
+  const rememberLevelsCheckbox = document.getElementById('remember-levels');
+  const autoUpdateCheckbox = document.getElementById('auto-update');
   const staNetworksList = document.getElementById('sta-network-list');
   const refreshNetworksButton = document.getElementById('refresh-networks');
   const scanStatus = document.getElementById('scan-status');
@@ -1355,6 +1374,9 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
     ssidApInput.value = settings.ssidAp;
     passApInput.value = settings.passwordAp;
     passReqApCheckbox.checked = settings.requiresPassAp;
+    rememberModeCheckbox.checked = settings.rememberMode;
+    rememberLevelsCheckbox.checked = settings.rememberLevels;
+    autoUpdateCheckbox.checked = settings.autoUpdate;
 
     if (settings.ssidSta) {
       selectedNetworkSsid = settings.ssidSta;
@@ -1413,6 +1435,29 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
       staNetworksList.innerHTML = '';
     }
   });
+
+  function bindGeneralPref(checkbox, key) {
+    checkbox.addEventListener('change', async () => {
+      const enabled = checkbox.checked;
+      try {
+        const response = await fetch('/api/save_general_settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [key]: enabled })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        settings[key] = enabled;
+      } catch (error) {
+        checkbox.checked = !enabled;
+        alert('Не удалось сохранить настройку');
+        console.error('Ошибка сохранения настройки:', error);
+      }
+    });
+  }
+
+  bindGeneralPref(rememberModeCheckbox, 'rememberMode');
+  bindGeneralPref(rememberLevelsCheckbox, 'rememberLevels');
+  bindGeneralPref(autoUpdateCheckbox, 'autoUpdate');
 
   toggleManualStaButton.addEventListener('click', () => {
     const opened = manualStaForm.classList.toggle('open');
@@ -1852,6 +1897,10 @@ void sendSettings(AsyncWebServerRequest* request, const SettingsAP& ap, bool use
   doc["ssidAp"] = ap.ssid;
   doc["passwordAp"] = ap.password;
   doc["requiresPassAp"] = ap.requirePass;
+  GeneralPrefs prefs = getGeneralPrefs();
+  doc["rememberMode"] = prefs.rememberMode;
+  doc["rememberLevels"] = prefs.rememberLevels;
+  doc["autoUpdate"] = prefs.autoUpdate;
   sendPage(request, html_settings_p1, toJson(doc), html_settings_p2);
 }
 

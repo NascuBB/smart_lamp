@@ -17,6 +17,7 @@ namespace lamp {
   void begin();
   void loop();
   void saveNow();
+  void setPrefs(const GeneralPrefs& prefs);
 
   const LampState& state();
 

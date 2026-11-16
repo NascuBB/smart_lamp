@@ -14,15 +14,9 @@ Libraries: ESPAsyncWebServer + ESPAsyncTCP, ArduinoJson 7, NeoPixelBus.
 The strip data line is on **RX (GPIO3)** (DMA method). Serial log is TX-only at 115200.
 
 
-## Releasing
-1. Add a `## X.Y.Z` section to `CHANGELOG.md`.
-2. Set `FW_VERSION` in `config.h` to `X.Y.Z` and push to `main`.
-
-GitHub Actions builds the firmware and publishes release `vX.Y.Z` with `firmware.bin` and the changelog section as its description.
-Then it updates `version.txt`, which 0.3.x lamps use to detect updates. Do not edit `version.txt` by hand.
-Every push and pull request is also built, and the binary is available in the workflow run artifacts.
-
+## OTA
 Lamps on 0.4.0+ read the version from the latest release tag and only install a newer one.
+`version.txt` stays at `0.4.0` for 0.3.x lamps: they update whenever it differs from their own version and download the latest release.
 
 ## Important notes:
 This is a beta firmware version, it contains bugs, and the page is currently only available in Russian.

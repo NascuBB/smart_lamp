@@ -167,6 +167,14 @@ namespace {
     sendOk(request);
   }
 
+  void handleSaveLampSettings(AsyncWebServerRequest* request, JsonDocument& doc) {
+    LampPrefs prefs = getLampPrefs();
+    prefs.rememberMode = doc["rememberMode"] | prefs.rememberMode;
+    prefs.rememberLevels = doc["rememberLevels"] | prefs.rememberLevels;
+    lamp::setPrefs(prefs);
+    sendOk(request);
+  }
+
   void handleSaveAp(AsyncWebServerRequest* request, JsonDocument& doc) {
     SettingsAP settings = {};
     strlcpy(settings.ssid, doc["ssid"] | "", sizeof(settings.ssid));
@@ -347,6 +355,7 @@ void begin() {
   onJsonPost("/api/connect_network", handleConnectNetwork);
   onJsonPost("/api/save_sta_mode", handleSaveStaMode);
   onJsonPost("/api/save_ap", handleSaveAp);
+  onJsonPost("/api/save_lamp_settings", handleSaveLampSettings);
   onJsonPost("/api/saved_networks/update", handleUpdateSavedNetwork);
   onJsonPost("/api/saved_networks/delete", handleDeleteSavedNetwork);
 

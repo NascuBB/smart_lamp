@@ -3,6 +3,16 @@
 Each `## X.Y.Z` section becomes the description of the GitHub release `vX.Y.Z`.
 Write the section before bumping `FW_VERSION` in `config.h`.
 
+## 0.4.1
+
+### Added
+- Two settings toggles, both disabled by default:
+  - "Remember mode": the mode, static color and gradient are restored after a reboot.
+  - "Remember brightness and speed": brightness and speed are restored after a reboot.
+
+### Changed
+- Lamp settings are no longer restored after a reboot unless one of the toggles above is enabled. With both disabled, nothing is written to flash when the lamp is adjusted.
+
 ## 0.4.0
 
 ### Added

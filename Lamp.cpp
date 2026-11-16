@@ -169,9 +169,19 @@ namespace lamp {
 
 void begin() {
   setDefaults();
+  LampPrefs prefs = getLampPrefs();
   LampState saved;
-  if (loadLampState(saved) && isValidState(saved)) {
-    st = saved;
+  if ((prefs.rememberMode || prefs.rememberLevels) && loadLampState(saved) && isValidState(saved)) {
+    if (prefs.rememberMode) {
+      st.mode = saved.mode;
+      memcpy(st.colorHex, saved.colorHex, sizeof(st.colorHex));
+      st.stopsCount = saved.stopsCount;
+      memcpy(st.stops, saved.stops, sizeof(st.stops));
+    }
+    if (prefs.rememberLevels) {
+      st.brightness = saved.brightness;
+      st.speed = saved.speed;
+    }
     LOG("Lamp: restored mode=%u brightness=%u speed=%u", st.mode, st.brightness, st.speed);
   }
   st.power = true;
@@ -186,8 +196,7 @@ void loop() {
   }
 
   if (stateDirty && millis() - stateChangedAt > STATE_SAVE_DELAY_MS) {
-    stateDirty = false;
-    saveLampState(st);
+    saveNow();
   }
 
   if (!st.power) {
@@ -221,6 +230,17 @@ void loop() {
 
 void saveNow() {
   if (stateDirty) {
+    stateDirty = false;
+    LampPrefs prefs = getLampPrefs();
+    if (prefs.rememberMode || prefs.rememberLevels) {
+      saveLampState(st);
+    }
+  }
+}
+
+void setPrefs(const LampPrefs& prefs) {
+  setLampPrefs(prefs);
+  if (prefs.rememberMode || prefs.rememberLevels) {
     stateDirty = false;
     saveLampState(st);
   }

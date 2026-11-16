@@ -16,16 +16,23 @@ namespace {
     LampState state;
   };
 
+  struct StoredLampPrefs {
+    uint32_t magic;
+    LampPrefs prefs;
+  };
+
   const uint32_t SAVED_WIFI_MAGIC = 0x57534631UL;
   const uint32_t LAMP_STATE_MAGIC = 0x4C4D5031UL;
+  const uint32_t LAMP_PREFS_MAGIC = 0x4C4D5050UL;
 
   const int AP_SETTINGS_ADDR  = 0;
   const int STA_SETTINGS_ADDR = AP_SETTINGS_ADDR + sizeof(SettingsAP);
   const int SAVED_WIFI_ADDR   = STA_SETTINGS_ADDR + sizeof(SettingsSTA);
   const int LAMP_STATE_ADDR   = 512;
+  const int LAMP_PREFS_ADDR   = LAMP_STATE_ADDR + sizeof(StoredLampState);
 
   static_assert(SAVED_WIFI_ADDR + sizeof(SavedWiFiStorage) <= LAMP_STATE_ADDR, "Wi-Fi settings overlap lamp state");
-  static_assert(LAMP_STATE_ADDR + sizeof(StoredLampState) <= EEPROM_SIZE, "EEPROM_SIZE is too small");
+  static_assert(LAMP_PREFS_ADDR + sizeof(StoredLampPrefs) <= EEPROM_SIZE, "EEPROM_SIZE is too small");
 
   SavedWiFiStorage wifiStorage;
   bool commitPending = false;
@@ -296,6 +303,26 @@ bool updateSavedWiFiNetwork(const char* oldSsid, const char* newSsid, const char
 
   saveWifiStorage();
   return true;
+}
+
+LampPrefs getLampPrefs() {
+  StoredLampPrefs stored;
+  EEPROM.get(LAMP_PREFS_ADDR, stored);
+  if (stored.magic != LAMP_PREFS_MAGIC) {
+    return LampPrefs{false, false};
+  }
+  return LampPrefs{stored.prefs.rememberMode == true, stored.prefs.rememberLevels == true};
+}
+
+void setLampPrefs(const LampPrefs& prefs) {
+  LampPrefs current = getLampPrefs();
+  if (current.rememberMode == prefs.rememberMode && current.rememberLevels == prefs.rememberLevels) {
+    return;
+  }
+  StoredLampPrefs stored;
+  stored.magic = LAMP_PREFS_MAGIC;
+  stored.prefs = prefs;
+  writeBlock(LAMP_PREFS_ADDR, stored);
 }
 
 bool loadLampState(LampState& state) {

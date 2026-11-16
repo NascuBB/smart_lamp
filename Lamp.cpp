@@ -169,7 +169,7 @@ namespace lamp {
 
 void begin() {
   setDefaults();
-  LampPrefs prefs = getLampPrefs();
+  GeneralPrefs prefs = getGeneralPrefs();
   LampState saved;
   if ((prefs.rememberMode || prefs.rememberLevels) && loadLampState(saved) && isValidState(saved)) {
     if (prefs.rememberMode) {
@@ -231,15 +231,15 @@ void loop() {
 void saveNow() {
   if (stateDirty) {
     stateDirty = false;
-    LampPrefs prefs = getLampPrefs();
+    GeneralPrefs prefs = getGeneralPrefs();
     if (prefs.rememberMode || prefs.rememberLevels) {
       saveLampState(st);
     }
   }
 }
 
-void setPrefs(const LampPrefs& prefs) {
-  setLampPrefs(prefs);
+void setPrefs(const GeneralPrefs& prefs) {
+  setGeneralPrefs(prefs);
   if (prefs.rememberMode || prefs.rememberLevels) {
     stateDirty = false;
     saveLampState(st);

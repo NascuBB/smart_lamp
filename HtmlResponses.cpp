@@ -1127,6 +1127,10 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
       <input type="checkbox" class="checkbox" id="remember-levels">
       <label for="remember-levels">Запоминать яркость и скорость после перезагрузки</label>
     </div>
+    <div class="checkbox-container">
+      <input type="checkbox" class="checkbox" id="auto-update">
+      <label for="auto-update">Автообновление через GitHub при включении</label>
+    </div>
   </div>
 
   <div class="card">
@@ -1152,6 +1156,7 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
   const passReqApCheckbox = document.getElementById('pass-req-ap');
   const rememberModeCheckbox = document.getElementById('remember-mode');
   const rememberLevelsCheckbox = document.getElementById('remember-levels');
+  const autoUpdateCheckbox = document.getElementById('auto-update');
   const staNetworksList = document.getElementById('sta-network-list');
   const refreshNetworksButton = document.getElementById('refresh-networks');
   const scanStatus = document.getElementById('scan-status');
@@ -1371,6 +1376,7 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
     passReqApCheckbox.checked = settings.requiresPassAp;
     rememberModeCheckbox.checked = settings.rememberMode;
     rememberLevelsCheckbox.checked = settings.rememberLevels;
+    autoUpdateCheckbox.checked = settings.autoUpdate;
 
     if (settings.ssidSta) {
       selectedNetworkSsid = settings.ssidSta;
@@ -1430,11 +1436,11 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
     }
   });
 
-  function bindLampPref(checkbox, key) {
+  function bindGeneralPref(checkbox, key) {
     checkbox.addEventListener('change', async () => {
       const enabled = checkbox.checked;
       try {
-        const response = await fetch('/api/save_lamp_settings', {
+        const response = await fetch('/api/save_general_settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ [key]: enabled })
@@ -1449,8 +1455,9 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
     });
   }
 
-  bindLampPref(rememberModeCheckbox, 'rememberMode');
-  bindLampPref(rememberLevelsCheckbox, 'rememberLevels');
+  bindGeneralPref(rememberModeCheckbox, 'rememberMode');
+  bindGeneralPref(rememberLevelsCheckbox, 'rememberLevels');
+  bindGeneralPref(autoUpdateCheckbox, 'autoUpdate');
 
   toggleManualStaButton.addEventListener('click', () => {
     const opened = manualStaForm.classList.toggle('open');
@@ -1890,9 +1897,10 @@ void sendSettings(AsyncWebServerRequest* request, const SettingsAP& ap, bool use
   doc["ssidAp"] = ap.ssid;
   doc["passwordAp"] = ap.password;
   doc["requiresPassAp"] = ap.requirePass;
-  LampPrefs prefs = getLampPrefs();
+  GeneralPrefs prefs = getGeneralPrefs();
   doc["rememberMode"] = prefs.rememberMode;
   doc["rememberLevels"] = prefs.rememberLevels;
+  doc["autoUpdate"] = prefs.autoUpdate;
   sendPage(request, html_settings_p1, toJson(doc), html_settings_p2);
 }
 

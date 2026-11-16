@@ -17,6 +17,7 @@ namespace {
 
   unsigned long rebootAt = 0;
   bool updateRequested = false;
+  bool autoUpdateChecked = false;
   AsyncWebServerRequest* uploadOwner = nullptr;
   bool uploadInProgress = false;
   bool uploadFailed = false;
@@ -167,10 +168,11 @@ namespace {
     sendOk(request);
   }
 
-  void handleSaveLampSettings(AsyncWebServerRequest* request, JsonDocument& doc) {
-    LampPrefs prefs = getLampPrefs();
+  void handleSaveGeneralSettings(AsyncWebServerRequest* request, JsonDocument& doc) {
+    GeneralPrefs prefs = getGeneralPrefs();
     prefs.rememberMode = doc["rememberMode"] | prefs.rememberMode;
     prefs.rememberLevels = doc["rememberLevels"] | prefs.rememberLevels;
+    prefs.autoUpdate = doc["autoUpdate"] | prefs.autoUpdate;
     lamp::setPrefs(prefs);
     sendOk(request);
   }
@@ -304,8 +306,11 @@ namespace {
     rebootAt = millis() + 1000;
   }
 
-  void runGithubUpdate() {
+  void runGithubUpdate(bool interactive) {
     UpdateCheck check = checkForUpdate(OTA_LATEST_RELEASE_URL, FW_VERSION);
+    if (check != UpdateCheck::Available && !interactive) {
+      return;
+    }
     if (check != UpdateCheck::Available) {
       RgbColor color = (check == UpdateCheck::UpToDate) ? RgbColor(0, 255, 0) : RgbColor(255, 100, 0);
       lamp::blink(color, 3, 400);
@@ -314,6 +319,8 @@ namespace {
     }
 
     lamp::fill(RgbColor(0));
+    server.end();
+    LOG("OTA: web server stopped, free heap %u", ESP.getFreeHeap());
     bool ok = performOTA(OTA_FIRMWARE_URL, [](int percent) {
       lamp::showProgress(percent, RgbColor(0, 255, 255));
     });
@@ -327,6 +334,7 @@ namespace {
       ESP.restart();
     }
 
+    server.begin();
     lamp::blink(RgbColor(255, 0, 0), 3, 600);
     lamp::restore();
   }
@@ -355,7 +363,7 @@ void begin() {
   onJsonPost("/api/connect_network", handleConnectNetwork);
   onJsonPost("/api/save_sta_mode", handleSaveStaMode);
   onJsonPost("/api/save_ap", handleSaveAp);
-  onJsonPost("/api/save_lamp_settings", handleSaveLampSettings);
+  onJsonPost("/api/save_general_settings", handleSaveGeneralSettings);
   onJsonPost("/api/saved_networks/update", handleUpdateSavedNetwork);
   onJsonPost("/api/saved_networks/delete", handleDeleteSavedNetwork);
 
@@ -417,9 +425,17 @@ void loop() {
     ESP.restart();
   }
 
+  if (!autoUpdateChecked && net::isStaConnected()) {
+    autoUpdateChecked = true;
+    if (getGeneralPrefs().autoUpdate) {
+      LOG("OTA: automatic update check");
+      runGithubUpdate(false);
+    }
+  }
+
   if (updateRequested) {
     updateRequested = false;
-    runGithubUpdate();
+    runGithubUpdate(true);
   }
 }
 

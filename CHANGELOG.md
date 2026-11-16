@@ -9,6 +9,11 @@ Write the section before bumping `FW_VERSION` in `config.h`.
 - Two settings toggles, both disabled by default:
   - "Remember mode": the mode, static color and gradient are restored after a reboot.
   - "Remember brightness and speed": brightness and speed are restored after a reboot.
+- "Auto-update from GitHub" toggle (disabled by default): after power-on, once the lamp connects to Wi-Fi it checks the latest release and installs it if it is newer. Nothing is shown when the lamp is up to date or GitHub is unreachable.
+- The toggles live in the new "General" card on the settings page.
+
+### Fixed
+- Update from GitHub could crash the lamp (out of memory) when the web page was open during the download. The web server is now paused while firmware is downloaded.
 
 ### Changed
 - Lamp settings are no longer restored after a reboot unless one of the toggles above is enabled. With both disabled, nothing is written to flash when the lamp is adjusted.

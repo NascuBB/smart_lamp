@@ -58,13 +58,14 @@ void setLastSavedWiFiNetwork(const char* ssid);
 bool deleteSavedWiFiNetwork(const char* ssid);
 bool updateSavedWiFiNetwork(const char* oldSsid, const char* newSsid, const char* newPassword);
 
-struct LampPrefs {
+struct GeneralPrefs {
   bool rememberMode;
   bool rememberLevels;
+  bool autoUpdate;
 };
 
-LampPrefs getLampPrefs();
-void setLampPrefs(const LampPrefs& prefs);
+GeneralPrefs getGeneralPrefs();
+void setGeneralPrefs(const GeneralPrefs& prefs);
 
 bool loadLampState(LampState& state);
 void saveLampState(const LampState& state);

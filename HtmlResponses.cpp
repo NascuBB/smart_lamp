@@ -1118,7 +1118,7 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
   </div>
 
   <div class="card">
-    <h3 class="secondary-title">Светильник</h3>
+    <h3 class="secondary-title">Общее</h3>
     <div class="checkbox-container">
       <input type="checkbox" class="checkbox" id="remember-mode">
       <label for="remember-mode">Запоминать режим и его цвета после перезагрузки</label>

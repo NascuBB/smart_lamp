@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.4.0"
+#define FW_VERSION "0.4.1"
 #endif
 
 #define NUM_LEDS          30

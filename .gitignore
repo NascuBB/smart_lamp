@@ -2,3 +2,5 @@
 .vscode/
 .html/
 build/
+WebAssets.h
+web/node_modules/

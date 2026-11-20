@@ -77,7 +77,7 @@ namespace {
     c.fromUser = fromUser;
   }
 
-  bool buildSavedQueue(bool includeLast, bool scan) {
+  bool buildSavedQueue(bool includeLast, int found) {
     queueLen = 0;
     queuePos = 0;
     const SavedWiFiStorage& storage = savedWiFi();
@@ -87,9 +87,8 @@ namespace {
       enqueue(last.ssid, last.password, false, false);
     }
 
-    if (scan) {
-      int found = WiFi.scanNetworks(false, true);
-      LOG("WiFi: sync scan found %d networks", found);
+    if (found >= 0) {
+      LOG("WiFi: scan found %d networks", found);
       for (uint8_t round = 0; round < MAX_SAVED_WIFI_NETWORKS; round++) {
         int best = -1;
         int bestRssi = -1000;
@@ -106,8 +105,8 @@ namespace {
         findSavedWiFiNetwork(WiFi.SSID(best).c_str(), &network);
         enqueue(network.ssid, network.password, false, false);
       }
-      WiFi.scanDelete();
     }
+    WiFi.scanDelete();
 
     return queueLen > 0;
   }
@@ -209,7 +208,7 @@ namespace {
 
     if (fallbackToSaved) {
       fallbackToSaved = false;
-      if (buildSavedQueue(true, true)) {
+      if (buildSavedQueue(true, WiFi.scanNetworks(false, true))) {
         startAttempt();
         return;
       }
@@ -227,6 +226,51 @@ namespace {
     } else if ((long)(millis() - attemptDeadline) >= 0) {
       onAttemptFailed(false);
     }
+  }
+
+  int scanBlocking(uint8_t segment, uint8_t segments) {
+    const unsigned long timeoutMs = 8000;
+    WiFi.scanNetworks(true, true);
+    unsigned long start = millis();
+    bool on = true;
+    while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && millis() - start < timeoutMs) {
+      lamp::showSegmentMarker(segment, segments, on);
+      on = !on;
+      delay(150);
+    }
+    lamp::showSegmentMarker(segment, segments, false);
+    int found = WiFi.scanComplete();
+    return found < 0 ? 0 : found;
+  }
+
+  bool pickBestSaved(int found, const char failed[][32], uint8_t failedCount, Candidate& out) {
+    int best = -1;
+    int bestRssi = -1000;
+    for (int i = 0; i < found; i++) {
+      String ssid = WiFi.SSID(i);
+      if (!findSavedWiFiNetwork(ssid.c_str())) continue;
+      bool alreadyFailed = false;
+      for (uint8_t j = 0; j < failedCount; j++) {
+        if (ssid == failed[j]) alreadyFailed = true;
+      }
+      if (!alreadyFailed && WiFi.RSSI(i) > bestRssi) {
+        bestRssi = WiFi.RSSI(i);
+        best = i;
+      }
+    }
+
+    bool picked = false;
+    if (best >= 0) {
+      SavedWiFiNetwork network;
+      findSavedWiFiNetwork(WiFi.SSID(best).c_str(), &network);
+      out = Candidate{};
+      strlcpy(out.ssid, network.ssid, sizeof(out.ssid));
+      strlcpy(out.password, network.password, sizeof(out.password));
+      picked = true;
+    }
+    WiFi.scanDelete();
+    LOG("WiFi: scan found %d networks, %s", found, picked ? out.ssid : "no saved network in range");
+    return picked;
   }
 
   bool connectBlocking(const Candidate& c, uint8_t segment, uint8_t segments) {
@@ -335,21 +379,32 @@ void begin() {
   }
 
   WiFi.mode(WIFI_STA);
-  uint8_t segment = 0;
+  const uint8_t segments = BOOT_CONNECT_SEGMENTS;
 
-  if (buildSavedQueue(true, false) && connectBlocking(queue[0], segment++, savedCount)) {
-    onConnected(queue[0]);
-    return;
+  Candidate candidate = {};
+  SavedWiFiNetwork last;
+  if (getLastSavedWiFiNetwork(&last)) {
+    strlcpy(candidate.ssid, last.ssid, sizeof(candidate.ssid));
+    strlcpy(candidate.password, last.password, sizeof(candidate.password));
+    if (connectBlocking(candidate, 0, segments)) {
+      onConnected(candidate);
+      return;
+    }
   }
+  lamp::showSegmentProgress(0, segments, 1, 1);
 
-  bool skipFirst = queueLen > 0;
-  if (buildSavedQueue(true, true)) {
-    for (uint8_t i = skipFirst ? 1 : 0; i < queueLen; i++) {
-      if (connectBlocking(queue[i], segment++, max(savedCount, queueLen))) {
-        onConnected(queue[i]);
+  char failed[BOOT_CONNECT_SEGMENTS][32] = {};
+  uint8_t failedCount = 0;
+  for (uint8_t segment = 1; segment < segments; segment++) {
+    int found = scanBlocking(segment, segments);
+    if (pickBestSaved(found, failed, failedCount, candidate)) {
+      if (connectBlocking(candidate, segment, segments)) {
+        onConnected(candidate);
         return;
       }
+      strlcpy(failed[failedCount++], candidate.ssid, sizeof(failed[0]));
     }
+    lamp::showSegmentProgress(segment, segments, 1, 1);
   }
 
   enterAccessPoint(true);
@@ -387,7 +442,7 @@ void loop() {
     case State::WaitingReconnect:
       if (millis() - lostAt >= RECONNECT_DELAY_MS) {
         fallbackToSaved = false;
-        if (buildSavedQueue(true, true)) {
+        if (buildSavedQueue(true, WiFi.scanNetworks(false, true))) {
           startAttempt();
         } else {
           enterAccessPoint(true);
@@ -400,7 +455,7 @@ void loop() {
           millis() - lastApRetryAt >= AP_RETRY_INTERVAL_MS) {
         lastApRetryAt = millis();
         fallbackToSaved = false;
-        if (buildSavedQueue(false, true)) {
+        if (buildSavedQueue(false, WiFi.scanNetworks(false, true))) {
           startAttempt();
         }
       }

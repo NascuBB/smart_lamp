@@ -1,0 +1,647 @@
+<style>
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+
+  .status-label {
+    color: var(--text-dim);
+  }
+
+  .status-value {
+    font-weight: bold;
+  }
+
+  .power-btn {
+    display: block;
+    width: 100%;
+    padding: 1rem;
+    margin: 1rem 0;
+    border: none;
+  }
+
+  .power-btn:hover {
+    transform: translateY(-2px);
+  }
+
+  .power-btn:active {
+    transform: translateY(0);
+  }
+
+  .power-btn.off {
+    background-color: var(--danger);
+  }
+
+  .power-btn.on {
+    background-color: var(--success);
+  }
+
+  .mode-selector {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+
+  .speed-selector {
+    display: flex;
+    justify-content: space-around;
+    margin: 1.5rem 0;
+  }
+
+  .mode-btn,
+  .speed-btn {
+    background-color: var(--bg-light);
+    border: 2px solid var(--bg-light);
+  }
+
+  .speed-btn {
+    min-width: 3rem;
+  }
+
+  .mode-btn:hover,
+  .speed-btn:hover {
+    border-color: var(--primary);
+  }
+
+  .mode-btn.active,
+  .speed-btn.active {
+    border-color: var(--primary);
+    background-color: rgba(108, 92, 231, 0.2);
+  }
+
+  .color-picker {
+    width: 100%;
+    height: 50px;
+    margin: 1.5rem 0;
+    cursor: pointer;
+    border: 2px solid var(--primary);
+    border-radius: 8px;
+    background-color: var(--bg);
+  }
+
+  .slider-container {
+    margin: 1.5rem 0;
+  }
+
+  .slider-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+
+  .slider {
+    width: 100%;
+    height: 8px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--bg-light);
+    border-radius: 4px;
+    outline: none;
+  }
+
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--primary);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  .brightness-warning {
+    color: var(--warning);
+    transition: opacity 0.5s;
+    opacity: 0;
+  }
+
+  .brightness-warning.visible {
+    opacity: 1;
+  }
+
+  @media (max-width: 600px) {
+    .mode-selector {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (min-width: 600px) {
+    .speed-btn {
+      min-width: 5rem;
+    }
+  }
+
+  .collapsible {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transition: grid-template-rows 0.15s ease-out, opacity 0.15s ease-out;
+  }
+
+  .collapsible.hidden {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+
+  .collapsible-inner {
+    overflow: hidden;
+  }
+
+  .gradient-editor {
+    margin: 1.5rem 0;
+    user-select: none;
+  }
+
+  .gradient-bar {
+    position: relative;
+    touch-action: none;
+    height: 40px;
+    margin-bottom: 10px;
+    cursor: crosshair;
+  }
+
+  .gradient-preview {
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    border: 2px solid var(--bg-light);
+    background: linear-gradient(90deg, #fff, #000);
+  }
+
+  .gradient-stop-marker {
+    position: absolute;
+    top: -5px;
+    width: 14px;
+    height: 50px;
+    background-color: #fff;
+    border: 2px solid #333;
+    border-radius: 4px;
+    transform: translateX(-50%);
+    cursor: grab;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    transition: transform 0.1s, border-color 0.1s;
+  }
+
+  @media (hover: hover) {
+    .gradient-stop-marker:hover {
+      z-index: 11;
+      transform: translateX(-50%) scale(1.1);
+    }
+  }
+
+  .gradient-stop-marker::before {
+    content: '';
+    position: absolute;
+    inset: -4px -12px;
+  }
+
+  .gradient-stop-marker.active {
+    border-color: #fff;
+    background-color: var(--text);
+    z-index: 12;
+    box-shadow: 0 0 0 2px var(--primary);
+  }
+
+  .gradient-stop-marker::after {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 20px;
+    background-color: inherit;
+    margin-top: 26px;
+    border-top: 1px solid #ccc;
+  }
+
+  .gradient-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    background: var(--bg-light);
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .gradient-controls .btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+  }
+
+  .gradient-control {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .gradient-control.grow {
+    flex: 1;
+  }
+
+  .gradient-control label,
+  .hint {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+
+  .gradient-control .color-picker {
+    width: 60px;
+    height: 35px;
+    margin: 0;
+  }
+
+  .hint {
+    margin-top: 5px;
+  }
+</style>
+
+<div class="page" id="home">
+  <h1>Управление светильником</h1>
+
+  <div class="card">
+    <div class="status-row">
+      <span class="status-label">Состояние:</span>
+      <span class="status-value" id="status-value">Выключен</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Последний режим:</span>
+      <span class="status-value" id="mode-value">Выключен</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Скорость:</span>
+      <span class="status-value" id="speed-value">3</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Яркость:</span>
+      <span class="status-value" id="brightness-value">0%</span>
+    </div>
+  </div>
+
+  <button class="power-btn btn off" id="power-btn">Включить</button>
+
+  <h2>Режимы</h2>
+  <div class="mode-selector">
+    <div class="btn mode-btn" data-mode="3">Статичный</div>
+    <div class="btn mode-btn" data-mode="2">Сплошной</div>
+    <div class="btn mode-btn" data-mode="1">Радуга</div>
+    <div class="btn mode-btn" data-mode="4">Огонь</div>
+    <div class="btn mode-btn" data-mode="5">Градиент</div>
+  </div>
+
+  <h2>Скорость</h2>
+  <div class="speed-selector">
+    <div class="btn speed-btn" data-speed="1">1</div>
+    <div class="btn speed-btn" data-speed="2">2</div>
+    <div class="btn speed-btn" data-speed="3">3</div>
+    <div class="btn speed-btn" data-speed="4">4</div>
+    <div class="btn speed-btn" data-speed="5">5</div>
+  </div>
+
+  <div id="color-section" class="collapsible hidden">
+    <div class="collapsible-inner">
+      <h2>Цвет</h2>
+      <input type="color" class="color-picker" id="color-picker" value="#6c5ce7">
+    </div>
+  </div>
+
+  <div id="gradient-section" class="collapsible hidden">
+    <div class="collapsible-inner">
+      <h2>Градиент</h2>
+      <div class="gradient-editor">
+        <div class="gradient-bar" id="grad-box">
+          <div class="gradient-preview" id="grad-preview"></div>
+        </div>
+
+        <div class="gradient-controls">
+          <div class="gradient-control">
+            <label for="stop-color-picker">Цвет точки</label>
+            <input type="color" class="color-picker" id="stop-color-picker">
+          </div>
+
+          <div class="gradient-control grow">
+            <label>Позиция (%)</label>
+            <span id="stop-position-val" class="status-value">0%</span>
+          </div>
+
+          <button class="btn btn-danger" id="btn-delete-stop">Удалить точку</button>
+        </div>
+
+        <p class="hint">Кликните по полосе, чтобы добавить точку (макс 10). Перетаскивайте для смены позиции.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>Яркость</h2>
+  <div class="slider-container">
+    <div class="slider-label">
+      <span>Уровень яркости:</span>
+      <span id="brightness-slider-value">50%</span>
+    </div>
+    <input type="range" min="0" max="255" value="50" class="slider" id="brightness-slider">
+    <span id="brightness-warning" class="brightness-warning">При понижении яркости в Статичном режиме меняеться цветопередача</span>
+  </div>
+</div>
+
+<script>
+  const MODE_STATIC = 3;
+  const MODE_GRADIENT = 5;
+  const MAX_GRADIENT_STOPS = 10;
+  const MODE_NAMES = {
+    1: 'Радуга',
+    2: 'Сплошной (RGB)',
+    3: 'Статичный',
+    4: 'Огонь',
+    5: 'Градиент'
+  };
+
+  let state = null;
+  let gradientStops = [];
+  let selectedStopId = null;
+  let dragStopId = null;
+
+  const powerBtn = document.getElementById('power-btn');
+  const statusValue = document.getElementById('status-value');
+  const modeValue = document.getElementById('mode-value');
+  const brightnessValue = document.getElementById('brightness-value');
+  const speedValue = document.getElementById('speed-value');
+  const modeBtns = document.querySelectorAll('.mode-btn');
+  const speedBtns = document.querySelectorAll('.speed-btn');
+  const colorPicker = document.getElementById('color-picker');
+  const brightnessSlider = document.getElementById('brightness-slider');
+  const brightnessSliderValue = document.getElementById('brightness-slider-value');
+  const brightnessWarning = document.getElementById('brightness-warning');
+  const colorSection = document.getElementById('color-section');
+  const gradientSection = document.getElementById('gradient-section');
+
+  const gradBox = document.getElementById('grad-box');
+  const gradPreview = document.getElementById('grad-preview');
+  const stopColorPicker = document.getElementById('stop-color-picker');
+  const btnDeleteStop = document.getElementById('btn-delete-stop');
+  const stopPosLabel = document.getElementById('stop-position-val');
+
+  const brightnessPercent = (brightness) => Math.round((brightness * 100) / 255);
+
+  function init() {
+    updateSections();
+    const percent = brightnessPercent(state.brightness);
+    brightnessValue.textContent = `${percent}%`;
+    brightnessSliderValue.textContent = `${percent}%`;
+    brightnessSlider.value = state.brightness;
+    colorPicker.value = state.color;
+    colorPicker.style.backgroundColor = state.color;
+    modeValue.textContent = MODE_NAMES[state.mode] || state.mode;
+    speedValue.textContent = state.speed;
+    updatePowerState();
+    initGradient();
+  }
+
+  function markActive(buttons, key, value) {
+    buttons.forEach(btn => btn.classList.toggle('active', state.power && +btn.dataset[key] === value));
+  }
+
+  function updatePowerState() {
+    powerBtn.textContent = state.power ? 'Выключить' : 'Включить';
+    powerBtn.classList.toggle('on', state.power);
+    powerBtn.classList.toggle('off', !state.power);
+    statusValue.textContent = state.power ? 'Включен' : 'Выключен';
+    markActive(modeBtns, 'mode', state.mode);
+    markActive(speedBtns, 'speed', state.speed);
+  }
+
+  function updateSections() {
+    colorSection.classList.toggle('hidden', state.mode !== MODE_STATIC);
+    gradientSection.classList.toggle('hidden', state.mode !== MODE_GRADIENT);
+  }
+
+  powerBtn.addEventListener('click', () => {
+    if (!state) return;
+    const nextPower = !state.power;
+    postJson('/api/setPower', { power: nextPower })
+      .then(() => {
+        state.power = nextPower;
+        updatePowerState();
+      })
+      .catch(err => console.error('Ошибка:', err));
+  });
+
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!state || !state.power) return;
+      const mode = +btn.dataset.mode;
+      postJson('/api/setMode', { mode })
+        .then(() => {
+          state.mode = mode;
+          modeValue.textContent = MODE_NAMES[mode] || mode;
+          updateSections();
+          markActive(modeBtns, 'mode', mode);
+        })
+        .catch(err => console.error('Ошибка:', err));
+    });
+  });
+
+  speedBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!state || !state.power) return;
+      const speed = +btn.dataset.speed;
+      postJson('/api/setSpeed', { speed })
+        .then(() => {
+          state.speed = speed;
+          speedValue.textContent = speed;
+          markActive(speedBtns, 'speed', speed);
+        })
+        .catch(err => console.error('Ошибка:', err));
+    });
+  });
+
+  function debounce(fn, delayMs) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delayMs);
+    };
+  }
+
+  const sendColor = debounce(() => {
+    postJson('/api/setColor', { color: state.color })
+      .then(() => {
+        colorPicker.style.backgroundColor = state.color;
+      })
+      .catch(err => console.error('Ошибка:', err));
+  }, 300);
+
+  colorPicker.addEventListener('input', (e) => {
+    if (!state || !state.power || state.mode !== MODE_STATIC) return;
+    state.color = e.target.value;
+    sendColor();
+  });
+
+  const sendBrightness = debounce(() => {
+    postJson('/api/setBrightness', { brightness: state.brightness })
+      .then(() => {
+        brightnessValue.textContent = `${brightnessPercent(state.brightness)}%`;
+      })
+      .catch(err => console.error('Ошибка:', err));
+  }, 300);
+
+  brightnessSlider.addEventListener('input', (e) => {
+    if (!state || !state.power) return;
+    state.brightness = +e.target.value;
+    brightnessSliderValue.textContent = `${brightnessPercent(state.brightness)}%`;
+    brightnessWarning.classList.toggle('visible', state.brightness < 128);
+    sendBrightness();
+  });
+
+  const generateId = () => Date.now() + Math.random();
+  const markers = new Map();
+
+  function initGradient() {
+    gradientStops = state.gSs.map(s => ({
+      id: generateId(),
+      pos: s.pos * 100,
+      color: s.color,
+      outline: s.color
+    }));
+    selectedStopId = gradientStops[0].id;
+    renderStops();
+    updatePreview();
+    updateControls();
+  }
+
+  function renderStops() {
+    markers.forEach((el, id) => {
+      if (!gradientStops.some(s => s.id === id)) {
+        el.remove();
+        markers.delete(id);
+      }
+    });
+
+    gradientStops.forEach(stop => {
+      let el = markers.get(stop.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'gradient-stop-marker';
+        el.addEventListener('pointerdown', (e) => {
+          e.stopPropagation();
+          startDrag(stop.id, e);
+        });
+        el.addEventListener('pointermove', (e) => {
+          if (dragStopId === stop.id) moveStop(e.clientX);
+        });
+        el.addEventListener('pointerup', endDrag);
+        el.addEventListener('pointercancel', endDrag);
+        gradBox.appendChild(el);
+        markers.set(stop.id, el);
+      }
+      el.style.left = `${stop.pos}%`;
+      el.style.backgroundColor = stop.color;
+      el.classList.toggle('active', stop.id === selectedStopId);
+    });
+  }
+
+  function updatePreview() {
+    const sorted = [...gradientStops].sort((a, b) => a.pos - b.pos);
+    const cssGradient = sorted.map(s => `${s.color} ${s.pos}%`).join(', ');
+    gradPreview.style.background = `linear-gradient(90deg, ${cssGradient})`;
+  }
+
+  function updateControls(changePicker = true) {
+    const stop = gradientStops.find(s => s.id === selectedStopId);
+    if (stop) {
+      if (changePicker) stopColorPicker.value = stop.color;
+      stopColorPicker.style.backgroundColor = stop.outline;
+      stopPosLabel.textContent = Math.round(stop.pos) + '%';
+      btnDeleteStop.disabled = gradientStops.length <= 2;
+    }
+  }
+
+  stopColorPicker.addEventListener('input', (e) => {
+    const stop = gradientStops.find(s => s.id === selectedStopId);
+    if (stop) {
+      stop.color = e.target.value;
+      renderStops();
+      updatePreview();
+      sendGradient();
+    }
+  });
+
+  btnDeleteStop.addEventListener('click', () => {
+    if (gradientStops.length <= 2) return;
+    gradientStops = gradientStops.filter(s => s.id !== selectedStopId);
+    selectedStopId = gradientStops[0].id;
+    renderStops();
+    updatePreview();
+    updateControls();
+    sendGradient();
+  });
+
+  function percentFromClientX(clientX) {
+    const rect = gradBox.getBoundingClientRect();
+    const percent = ((clientX - rect.left) / rect.width) * 100;
+    return Math.max(0, Math.min(100, percent));
+  }
+
+  gradBox.addEventListener('pointerdown', (e) => {
+    if (!state || (e.target !== gradBox && e.target !== gradPreview)) return;
+    if (gradientStops.length >= MAX_GRADIENT_STOPS) {
+      alert(`Максимум ${MAX_GRADIENT_STOPS} точек`);
+      return;
+    }
+
+    const color = stopColorPicker.value;
+    const id = generateId();
+    gradientStops.push({ id, pos: percentFromClientX(e.clientX), color, outline: color });
+    startDrag(id, e);
+    updatePreview();
+  });
+
+  function startDrag(id, e) {
+    e.preventDefault();
+    dragStopId = id;
+    selectedStopId = id;
+    renderStops();
+    markers.get(id).setPointerCapture(e.pointerId);
+    updateControls();
+  }
+
+  function endDrag() {
+    if (dragStopId === null) return;
+    dragStopId = null;
+    sendGradient();
+  }
+
+  function moveStop(clientX) {
+    const stop = gradientStops.find(s => s.id === dragStopId);
+    if (stop) {
+      stop.pos = percentFromClientX(clientX);
+      renderStops();
+      updatePreview();
+      updateControls();
+    }
+  }
+
+  const sendGradientNow = debounce(() => {
+    const sortedStops = [...gradientStops].sort((a, b) => a.pos - b.pos);
+    postJson('/api/setGradient', {
+      colors: sortedStops.map(s => s.color),
+      stops: sortedStops.map(s => parseFloat((s.pos / 100).toFixed(4)))
+    })
+      .then(() => {
+        gradientStops.forEach(stop => {
+          stop.outline = stop.color;
+        });
+        updateControls(false);
+      })
+      .catch(err => console.error('Ошибка:', err));
+  }, 300);
+
+  function sendGradient() {
+    if (!state.power || state.mode !== MODE_GRADIENT) return;
+    sendGradientNow();
+  }
+
+  getJson('/api/state')
+    .then(data => {
+      state = data;
+      init();
+    })
+    .catch(err => console.error('Не удалось загрузить состояние:', err));
+</script>

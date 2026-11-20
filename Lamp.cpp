@@ -346,6 +346,7 @@ void showProgress(uint8_t percent, RgbColor color) {
 void showSegmentProgress(uint8_t segment, uint8_t segments, uint16_t step, uint16_t steps) {
   if (segments == 0) segments = 1;
   if (steps == 0) steps = 1;
+  segment = min<uint8_t>(segment, segments - 1);
   step = min(step, steps);
 
   uint16_t start = (uint32_t)segment * NUM_LEDS / segments;
@@ -356,6 +357,14 @@ void showSegmentProgress(uint8_t segment, uint8_t segments, uint16_t step, uint1
   for (uint16_t i = 0; i < lit; i++) {
     strip.SetPixelColor(i, color);
   }
+  strip.Show();
+}
+
+void showSegmentMarker(uint8_t segment, uint8_t segments, bool on) {
+  if (segments == 0) segments = 1;
+  segment = min<uint8_t>(segment, segments - 1);
+  uint16_t index = (uint32_t)segment * NUM_LEDS / segments;
+  strip.SetPixelColor(index, on ? RgbColor(0, 180, 255) : RgbColor(0));
   strip.Show();
 }
 

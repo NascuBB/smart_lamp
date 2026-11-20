@@ -3,6 +3,23 @@
 Each `## X.Y.Z` section becomes the description of the GitHub release `vX.Y.Z`.
 Write the section before bumping `FW_VERSION` in `config.h`.
 
+## 0.4.2
+
+### Changed
+- Wi-Fi connection at power-on is shown as 3 fixed segments of the strip, one per attempt:
+  1. the last network, right away without a scan;
+  2. a scan, then the strongest saved network in range;
+  3. a second scan, then the strongest saved network in range that was not already tried after a scan.
+  The second scan catches a router that was still starting up. The last network can be retried after a scan, because the first attempt is made blind.
+  If a scan finds nothing to try, its segment is filled at once. When the strip is full, the access point starts right away with the red blink.
+- While the lamp scans, the first LED of the next segment blinks instead of the strip looking frozen.
+
+### Added
+- Firmware version and a link to the GitHub project at the bottom of the settings page.
+
+### Fixed
+- Connection progress at power-on was split by the number of saved networks, so the strip could stay mostly empty before the lamp switched to its access point.
+
 ## 0.4.1
 
 ### Added

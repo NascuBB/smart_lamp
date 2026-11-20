@@ -1,4 +1,5 @@
 #include "HtmlResponses.h"
+#include "config.h"
 
 #include <memory>
 
@@ -1068,6 +1069,17 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
     .toggle-manual {
       margin-top: 0.7rem;
     }
+
+    .footer-info {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+    }
+
+    .footer-info a {
+      color: var(--text-dim);
+    }
   </style>
 
   <div class="card">
@@ -1142,6 +1154,11 @@ const char html_settings_p1[] PROGMEM = R"rawliteral(
     <input type="file" id="fw-file" accept=".bin" style="display: none;">
     <span class="network-status" id="fw-status"></span>
   </div>
+
+  <p class="footer-info">
+    Версия прошивки <span id="fw-version"></span> ·
+    <a id="project-link" target="_blank" rel="noopener">GitHub</a>
+  </p>
 </div>
 
 <script>
@@ -1377,6 +1394,8 @@ const char html_settings_p2[] PROGMEM = R"rawliteral(;
     rememberModeCheckbox.checked = settings.rememberMode;
     rememberLevelsCheckbox.checked = settings.rememberLevels;
     autoUpdateCheckbox.checked = settings.autoUpdate;
+    document.getElementById('fw-version').textContent = settings.version;
+    document.getElementById('project-link').href = settings.projectUrl;
 
     if (settings.ssidSta) {
       selectedNetworkSsid = settings.ssidSta;
@@ -1901,6 +1920,8 @@ void sendSettings(AsyncWebServerRequest* request, const SettingsAP& ap, bool use
   doc["rememberMode"] = prefs.rememberMode;
   doc["rememberLevels"] = prefs.rememberLevels;
   doc["autoUpdate"] = prefs.autoUpdate;
+  doc["version"] = FW_VERSION;
+  doc["projectUrl"] = PROJECT_URL;
   sendPage(request, html_settings_p1, toJson(doc), html_settings_p2);
 }
 

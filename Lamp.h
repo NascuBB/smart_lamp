@@ -32,6 +32,7 @@ namespace lamp {
   void blink(RgbColor color, uint8_t times, uint16_t periodMs);
   void showProgress(uint8_t percent, RgbColor color);
   void showSegmentProgress(uint8_t segment, uint8_t segments, uint16_t step, uint16_t steps);
+  void showSegmentMarker(uint8_t segment, uint8_t segments, bool on);
   void bootAnimation();
   void turnOffNow();
   void restore();

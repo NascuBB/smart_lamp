@@ -40,19 +40,25 @@ jobs:
             exit 1
           fi
 
+          new_version=true
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            new_version=false
+          fi
+
           release=false
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ] \
-             && ! git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+          if [ "$new_version" = "true" ] && [ "${{ github.event_name }}" = "push" ] \
+             && [ "${{ github.ref }}" = "refs/heads/main" ]; then
             release=true
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
           echo "release=$release" >> "$GITHUB_OUTPUT"
-          echo "Firmware $version, release: $release"
+          echo "Firmware $version, new version: $new_version, release: $release"
 
       - name: Extract release notes
-        if: steps.version.outputs.release == 'true'
+        if: steps.version.outputs.new_version == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |

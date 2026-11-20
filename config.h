@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.4.1"
+#define FW_VERSION "0.4.2"
 #endif
 
 #define NUM_LEDS          30
@@ -27,7 +27,7 @@
 #define OTA_LATEST_RELEASE_URL PROJECT_URL "/releases/latest"
 #define OTA_FIRMWARE_URL       PROJECT_URL "/releases/latest/download/firmware.bin"
 
-#define LOG_ENABLED 1
+#define LOG_ENABLED 0
 
 #if LOG_ENABLED
   #define LOG(fmt, ...) Serial.printf_P(PSTR(fmt "\n"), ##__VA_ARGS__)

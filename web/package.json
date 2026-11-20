@@ -1,0 +1,14 @@
+{
+  "name": "smart-lamp-web",
+  "private": true,
+  "type": "module",
+  "description": "Builds the lamp web UI into WebAssets.h (minified + gzipped PROGMEM arrays)",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "clean-css": "5.3.3",
+    "html-minifier-terser": "7.2.0",
+    "terser": "5.36.0"
+  }
+}

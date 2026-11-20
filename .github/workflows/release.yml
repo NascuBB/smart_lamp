@@ -73,6 +73,17 @@ jobs:
           fi
           cat "$RUNNER_TEMP/notes.md"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ env.SKETCH_DIR }}/web/package-lock.json
+
+      - name: Build web UI
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+
       - uses: arduino/setup-arduino-cli@v2
 
       - uses: actions/cache@v4

@@ -1,6 +1,5 @@
 #include "WebApi.h"
 #include "config.h"
-#include "HtmlResponses.h"
 #include "Lamp.h"
 #include "Network.h"
 #include "Settings.h"
@@ -9,6 +8,12 @@
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <Updater.h>
+
+#if __has_include("WebAssets.h")
+#include "WebAssets.h"
+#else
+#error "WebAssets.h is missing: run `npm ci && npm run build` in the web/ folder before compiling"
+#endif
 
 namespace {
   const size_t MAX_JSON_BODY = 2048;
@@ -35,6 +40,79 @@ namespace {
 
   void sendOk(AsyncWebServerRequest* request) {
     sendJson(request, 200, F("{\"success\":true}"));
+  }
+
+  void sendJsonDocument(AsyncWebServerRequest* request, const JsonDocument& doc) {
+    AsyncResponseStream* response = request->beginResponseStream("application/json");
+    serializeJson(doc, *response);
+    request->send(response);
+  }
+
+  void sendAsset(AsyncWebServerRequest* request, const WebAsset& asset) {
+    AsyncWebServerResponse* response = request->beginResponse_P(200, asset.contentType, asset.data, asset.length);
+    response->addHeader(F("Content-Encoding"), F("gzip"));
+    response->addHeader(F("Cache-Control"), asset.immutable ? F("public, max-age=31536000, immutable") : F("no-cache"));
+    request->send(response);
+  }
+
+  void sendIndexPage(AsyncWebServerRequest* request) {
+    for (size_t i = 0; i < WEB_ASSET_COUNT; i++) {
+      if (strcmp(WEB_ASSETS[i].path, "/") == 0) {
+        sendAsset(request, WEB_ASSETS[i]);
+        return;
+      }
+    }
+    request->send(404);
+  }
+
+  void handleGetState(AsyncWebServerRequest* request) {
+    const LampState& state = lamp::state();
+    JsonDocument doc;
+    doc["brightness"] = state.brightness;
+    doc["mode"] = state.mode;
+    doc["speed"] = state.speed;
+    doc["power"] = state.power;
+    doc["color"] = state.colorHex;
+    JsonArray stops = doc["gSs"].to<JsonArray>();
+    for (uint8_t i = 0; i < state.stopsCount; i++) {
+      JsonObject stop = stops.add<JsonObject>();
+      stop["pos"] = state.stops[i].position;
+      stop["color"] = state.stops[i].colorHex;
+    }
+    sendJsonDocument(request, doc);
+  }
+
+  void handleGetSettings(AsyncWebServerRequest* request) {
+    SettingsAP ap = loadAPSettings();
+    SavedWiFiNetwork last;
+    GeneralPrefs prefs = getGeneralPrefs();
+    JsonDocument doc;
+    doc["ssidSta"] = getLastSavedWiFiNetwork(&last) ? last.ssid : "";
+    doc["useStaMode"] = getUseStaMode();
+    doc["ssidAp"] = ap.ssid;
+    doc["passwordAp"] = ap.password;
+    doc["requiresPassAp"] = ap.requirePass;
+    doc["rememberMode"] = prefs.rememberMode;
+    doc["rememberLevels"] = prefs.rememberLevels;
+    doc["autoUpdate"] = prefs.autoUpdate;
+    doc["version"] = FW_VERSION;
+    doc["projectUrl"] = PROJECT_URL;
+    sendJsonDocument(request, doc);
+  }
+
+  void handleGetSavedNetworks(AsyncWebServerRequest* request) {
+    const SavedWiFiStorage& storage = savedWiFi();
+    JsonDocument doc;
+    JsonArray networks = doc["networks"].to<JsonArray>();
+    for (int i = 0; i < MAX_SAVED_WIFI_NETWORKS; i++) {
+      const SavedWiFiNetwork& network = storage.networks[i];
+      if (!network.used) continue;
+      JsonObject item = networks.add<JsonObject>();
+      item["ssid"] = network.ssid;
+      item["hasPassword"] = network.password[0] != '\0';
+      item["isLast"] = storage.lastIndex == i;
+    }
+    sendJsonDocument(request, doc);
   }
 
   void sendError(AsyncWebServerRequest* request, int code, const char* message) {
@@ -343,15 +421,16 @@ namespace {
 namespace web {
 
 void begin() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-    sendIndex(request, lamp::state());
-  });
-  server.on("/settings", HTTP_GET, [](AsyncWebServerRequest* request) {
-    sendSettings(request, loadAPSettings(), getUseStaMode());
-  });
-  server.on("/saved_networks", HTTP_GET, [](AsyncWebServerRequest* request) {
-    sendSavedNetworks(request, savedWiFi());
-  });
+  for (size_t i = 0; i < WEB_ASSET_COUNT; i++) {
+    const WebAsset* asset = &WEB_ASSETS[i];
+    server.on(asset->path, HTTP_GET, [asset](AsyncWebServerRequest* request) {
+      sendAsset(request, *asset);
+    });
+  }
+
+  server.on("/api/state", HTTP_GET, handleGetState);
+  server.on("/api/settings", HTTP_GET, handleGetSettings);
+  server.on("/api/saved_networks", HTTP_GET, handleGetSavedNetworks);
 
   onJsonPost("/api/setPower", handleSetPower);
   onJsonPost("/api/setMode", handleSetMode);
@@ -397,7 +476,7 @@ void begin() {
       sendError(request, 404, "Not found");
       return;
     }
-    sendIndex(request, lamp::state());
+    sendIndexPage(request);
   });
 
   server.begin();

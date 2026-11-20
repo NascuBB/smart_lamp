@@ -1,0 +1,129 @@
+<style>
+  .saved-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .saved-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .saved-item-header .item-title {
+    word-break: break-all;
+  }
+
+  .saved-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+</style>
+
+<div class="page" id="saved-networks">
+  <h1>Сохраненные сети</h1>
+
+  <div class="card">
+    <h3 class="secondary-title">Список сохраненных сетей</h3>
+    <div id="saved-list" class="saved-list"></div>
+    <div id="saved-status" class="status-text">Загрузка...</div>
+  </div>
+</div>
+
+<script>
+  const savedList = document.getElementById('saved-list');
+  const savedStatus = document.getElementById('saved-status');
+
+  function renderSavedNetworks(networks) {
+    savedList.innerHTML = '';
+
+    if (networks.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'list-item';
+      empty.textContent = 'Нет сохраненных сетей';
+      savedList.appendChild(empty);
+      return;
+    }
+
+    networks.forEach((network) => {
+      const ssid = escapeHtml(network.ssid);
+      const item = document.createElement('div');
+      item.className = 'list-item';
+      item.innerHTML = `
+        <div class="saved-item-header">
+          <div class="item-title">${ssid}</div>
+          <div>
+            ${network.isLast ? '<span class="badge">последняя</span>' : ''}
+            <span class="badge">${network.hasPassword ? 'пароль задан' : 'без пароля'}</span>
+          </div>
+        </div>
+        <div class="saved-actions">
+          <button class="btn btn-primary" data-action="edit" data-ssid="${ssid}" type="button">Изменить</button>
+          <button class="btn btn-danger" data-action="delete" data-ssid="${ssid}" type="button">Удалить</button>
+        </div>
+      `;
+      savedList.appendChild(item);
+    });
+  }
+
+  async function loadSavedNetworks(message = '') {
+    const data = await getJson('/api/saved_networks');
+    const networks = Array.isArray(data.networks) ? data.networks : [];
+    renderSavedNetworks(networks);
+    savedStatus.textContent = `${message}Сохранено сетей: ${networks.length}`;
+  }
+
+  async function updateSavedNetwork(oldSsid) {
+    const newSsid = prompt(`Новое имя сети для ${oldSsid}`, oldSsid);
+    if (newSsid === null) return;
+
+    const trimmedSsid = newSsid.trim();
+    if (!trimmedSsid) {
+      savedStatus.textContent = 'SSID не может быть пустым';
+      return;
+    }
+
+    const newPassword = prompt('Новый пароль (оставьте пустым, чтобы не менять)');
+    if (newPassword === null) return;
+
+    await postJson('/api/saved_networks/update', {
+      oldSsid,
+      newSsid: trimmedSsid,
+      password: newPassword,
+      passwordProvided: newPassword.length > 0
+    });
+    await loadSavedNetworks('Сеть обновлена. ');
+  }
+
+  async function deleteSavedNetwork(ssid) {
+    if (!confirm(`Удалить сеть ${ssid}?`)) return;
+
+    await postJson('/api/saved_networks/delete', { ssid });
+    await loadSavedNetworks('Сеть удалена. ');
+  }
+
+  savedList.addEventListener('click', async (event) => {
+    const { action, ssid } = event.target.dataset || {};
+    if (!action || !ssid) return;
+
+    try {
+      if (action === 'edit') {
+        await updateSavedNetwork(ssid);
+      } else if (action === 'delete') {
+        await deleteSavedNetwork(ssid);
+      }
+    } catch (error) {
+      savedStatus.textContent = 'Операция не выполнена';
+      console.error('Ошибка управления сохраненной сетью:', error);
+    }
+  });
+
+  loadSavedNetworks().catch((error) => {
+    savedStatus.textContent = 'Не удалось загрузить список';
+    console.error('Ошибка загрузки сохраненных сетей:', error);
+  });
+</script>

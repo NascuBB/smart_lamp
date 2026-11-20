@@ -13,6 +13,16 @@ Arduino IDE, board **Generic ESP8266 Module**, Flash Size **4MB (FS:1MB OTA:~101
 Libraries: ESPAsyncWebServer + ESPAsyncTCP, ArduinoJson 7, NeoPixelBus.
 The strip data line is on **RX (GPIO3)** (DMA method). Serial log is TX-only at 115200.
 
+The web UI lives in `web/` as plain HTML/CSS/JS. Before compiling, build it into `WebAssets.h` (minified and gzipped, not stored in git) with Node.js:
+
+```
+cd web
+npm ci
+npm run build
+```
+
+Run `npm run build` again after changing anything in `web/`. GitHub Actions does this automatically.
+
 
 ## OTA
 Lamps on 0.4.0+ read the version from the latest release tag and only install a newer one.

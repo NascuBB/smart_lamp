@@ -3,6 +3,14 @@
 Each `## X.Y.Z` section becomes the description of the GitHub release `vX.Y.Z`.
 Write the section before bumping `FW_VERSION` in `config.h`.
 
+## 0.4.3
+
+### Changed
+- The main page reloads the lamp state when it becomes visible again (switching back to the tab or app, unlocking the phone, restoring the page from the browser cache) and when the device reconnects to the network. Changes made from another device show up without reloading the page. The lamp does no extra work while the page is hidden.
+
+### Fixed
+- The low brightness warning was not shown when the page was opened with brightness already below 50%.
+
 ## 0.4.2
 
 ### Changed

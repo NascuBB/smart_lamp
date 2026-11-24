@@ -386,6 +386,7 @@
     brightnessValue.textContent = `${percent}%`;
     brightnessSliderValue.textContent = `${percent}%`;
     brightnessSlider.value = state.brightness;
+    brightnessWarning.classList.toggle('visible', state.brightness < 128);
     colorPicker.value = state.color;
     colorPicker.style.backgroundColor = state.color;
     modeValue.textContent = MODE_NAMES[state.mode] || state.mode;
@@ -638,10 +639,34 @@
     sendGradientNow();
   }
 
-  getJson('/api/state')
-    .then(data => {
-      state = data;
-      init();
-    })
-    .catch(err => console.error('Не удалось загрузить состояние:', err));
+  const REFRESH_MIN_INTERVAL_MS = 1000;
+  let loadSeq = 0;
+  let lastLoadAt = 0;
+
+  function loadState() {
+    const seq = ++loadSeq;
+    lastLoadAt = Date.now();
+    getJson('/api/state')
+      .then(data => {
+        if (seq !== loadSeq || dragStopId !== null) return;
+        state = data;
+        init();
+      })
+      .catch(err => console.error('Не удалось загрузить состояние:', err));
+  }
+
+  function refreshState() {
+    if (document.visibilityState !== 'visible' || dragStopId !== null) return;
+    if (Date.now() - lastLoadAt < REFRESH_MIN_INTERVAL_MS) return;
+    loadState();
+  }
+
+  document.addEventListener('visibilitychange', refreshState);
+  window.addEventListener('focus', refreshState);
+  window.addEventListener('online', refreshState);
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) refreshState();
+  });
+
+  loadState();
 </script>
